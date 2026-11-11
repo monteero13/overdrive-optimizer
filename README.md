@@ -59,26 +59,24 @@ en GitHub Releases y, si la hay, la descarga y ofrece "Reiniciar e instalar".
 
 ## Publicar una nueva versión
 
+El target NSIS ya genera el instalador sin espacios (`Overdrive-Setup-<v>.exe`),
+que coincide con el `url` de `latest.yml`, así que **no hay que renombrar nada**:
+
 1. Sube el número de versión en `package.json` (`"version"`).
 2. `npm run dist -- --publish never` (construye instalador + `latest.yml`).
-3. Prepara los assets con el nombre que espera `latest.yml` (sin espacios) y publícalos:
+3. Publica los assets directamente desde `dist/`:
 
 ```bash
-# desde dist/, copia el instalador al nombre de latest.yml
-cp "Overdrive Setup <v>.exe"           "release/Overdrive-Setup-<v>.exe"
-cp "Overdrive Setup <v>.exe.blockmap"  "release/Overdrive-Setup-<v>.exe.blockmap"
-cp latest.yml                          "release/latest.yml"
-
+cd dist
 gh release create v<v> --repo monteero13/overdrive-optimizer \
   --title "Overdrive v<v>" --notes "Cambios..." \
-  release/Overdrive-Setup-<v>.exe \
-  release/Overdrive-Setup-<v>.exe.blockmap \
-  release/latest.yml
+  Overdrive-Setup-<v>.exe \
+  Overdrive-Setup-<v>.exe.blockmap \
+  latest.yml \
+  Overdrive-<v>-portable.exe
 ```
 
-> El nombre del instalador subido **debe** coincidir con el campo `url` de `latest.yml`
-> (GitHub convierte los espacios en puntos, por eso se renombra a guiones antes de subir).
-> La release no debe ser *draft* o el updater no la verá.
+> La release no debe ser *draft* o el auto-updater no la verá.
 
 ## Empaquetar a .exe
 

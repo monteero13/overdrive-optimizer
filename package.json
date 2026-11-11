@@ -51,7 +51,8 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
-      "shortcutName": "Overdrive"
+      "shortcutName": "Overdrive",
+      "artifactName": "${productName}-Setup-${version}.${ext}"
     },
     "portable": {
       "artifactName": "Overdrive-${version}-portable.exe"
