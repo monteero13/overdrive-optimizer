@@ -1,0 +1,144 @@
+'use strict';
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const path = require('path');
+const { psRun } = require('./ps');
+const { analyze } = require('./system');
+const { tweaksForLevel, getTweak } = require('./tweaks');
+
+let mainWindow = null;
+
+function createWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1120,
+    height: 760,
+    minWidth: 900,
+    minHeight: 640,
+    backgroundColor: '#0a0b10',
+    title: 'Overdrive',
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
+  if (process.argv.includes('--dev')) mainWindow.webContents.openDevTools({ mode: 'detach' });
+}
+
+app.whenReady().then(() => {
+  createWindow();
+  app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+  });
+});
+
+app.on('window-all-closed', () => {
+  if (process.platform !== 'darwin') app.quit();
+});
+
+// ------------------------------- IPC -------------------------------
+
+ipcMain.handle('system:analyze', async () => {
+  return await analyze();
+});
+
+// Devuelve los tweaks del nivel con su estado actual (on/off/unknown).
+ipcMain.handle('tweaks:list', async (_e, { level, hasSSD }) => {
+  const list = tweaksForLevel(level).filter((t) => !(t.ssdOnly && !hasSSD));
+  const withState = await Promise.all(
+    list.map(async (t) => {
+      let state = 'unknown';
+      try {
+        const out = (await psRun(t.check)).trim();
+        if (out === 'on' || out === 'off') state = out;
+      } catch (_) {
+        state = 'unknown';
+      }
+      return {
+        id: t.id,
+        title: t.title,
+        desc: t.desc,
+        category: t.category,
+        risk: t.risk,
+        needsAdmin: !!t.needsAdmin,
+        needsReboot: !!t.needsReboot,
+        irreversible: !!t.irreversible,
+        state,
+      };
+    })
+  );
+  return withState;
+});
+
+// Crea un punto de restauracion del sistema. Requiere admin y Restauracion activada.
+ipcMain.handle('system:restorePoint', async () => {
+  const script = `
+    try {
+      Enable-ComputerRestore -Drive "$env:SystemDrive\\" -ErrorAction SilentlyContinue
+      # Saltar el limite de 1 punto cada 24h para esta operacion puntual.
+      New-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\SystemRestore' -Name 'SystemRestorePointCreationFrequency' -Value 0 -PropertyType DWord -Force | Out-Null
+      Checkpoint-Computer -Description 'Overdrive Optimizer' -RestorePointType 'MODIFY_SETTINGS' -ErrorAction Stop
+      'ok'
+    } catch {
+      "error: $($_.Exception.Message)"
+    }`;
+  const out = (await psRun(script, { timeout: 180000 })).trim();
+  if (out.startsWith('ok')) return { ok: true };
+  return { ok: false, message: out.replace(/^error:\s*/, '') };
+});
+
+// Aplica una lista de tweaks (por id), emitiendo progreso.
+ipcMain.handle('tweaks:apply', async (e, { ids }) => {
+  const results = [];
+  for (let i = 0; i < ids.length; i++) {
+    const t = getTweak(ids[i]);
+    if (!t) continue;
+    e.sender.send('tweaks:progress', { id: t.id, title: t.title, index: i, total: ids.length });
+    try {
+      const out = (await psRun(t.apply)).trim();
+      results.push({ id: t.id, ok: true, needsReboot: !!t.needsReboot, out });
+    } catch (err) {
+      results.push({ id: t.id, ok: false, message: err.message });
+    }
+  }
+  e.sender.send('tweaks:progress', { done: true, total: ids.length });
+  return results;
+});
+
+// Revierte una lista de tweaks (por id).
+ipcMain.handle('tweaks:revert', async (e, { ids }) => {
+  const results = [];
+  for (const id of ids) {
+    const t = getTweak(id);
+    if (!t || t.irreversible) continue;
+    try {
+      const out = (await psRun(t.revert)).trim();
+      results.push({ id, ok: true, out });
+    } catch (err) {
+      results.push({ id, ok: false, message: err.message });
+    }
+  }
+  return results;
+});
+
+ipcMain.handle('app:openExternal', async (_e, url) => {
+  await shell.openExternal(url);
+  return true;
+});
+
+// Relanza la app con privilegios de administrador (UAC).
+ipcMain.handle('app:relaunchAdmin', async () => {
+  const exe = process.execPath;
+  const appPath = app.getAppPath();
+  const args = process.defaultApp ? `'${appPath}'` : '';
+  const script = `Start-Process -FilePath '${exe}' -ArgumentList ${args ? args : "''"} -Verb RunAs`;
+  try {
+    await psRun(script);
+    app.quit();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, message: err.message };
+  }
+});

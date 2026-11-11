@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Overdrive</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="aurora"></div>
+
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo">◇</span>
+        <span class="brand-name">OVERDRIVE</span>
+        <span class="brand-sub">game optimizer</span>
+      </div>
+      <div id="adminBadge" class="badge badge-warn" hidden>
+        <span class="dot"></span> Sin permisos de administrador
+      </div>
+    </header>
+
+    <main class="container">
+      <!-- PASO 1: ANALISIS -->
+      <section class="panel" id="panel-scan">
+        <div class="panel-head">
+          <h2><span class="step">1</span> Analizar equipo</h2>
+          <button id="btnScan" class="btn btn-primary">
+            <span class="btn-label">Escanear hardware</span>
+          </button>
+        </div>
+        <div id="scanHint" class="hint">Pulsa escanear para inventariar CPU, GPU, RAM, disco y drivers.</div>
+
+        <div id="scanning" class="scanning" hidden>
+          <div class="radar"></div>
+          <p>Analizando sistema…</p>
+        </div>
+
+        <div id="specs" class="specs-grid" hidden></div>
+
+        <div id="driversBox" class="drivers-box" hidden>
+          <h3>Drivers que conviene revisar</h3>
+          <div id="driversList" class="drivers-list"></div>
+        </div>
+      </section>
+
+      <!-- PASO 2: NIVEL DE AGRESIVIDAD -->
+      <section class="panel" id="panel-level" hidden>
+        <div class="panel-head">
+          <h2><span class="step">2</span> Nivel de optimizacion</h2>
+        </div>
+        <div class="level-selector" id="levelSelector">
+          <button class="level" data-level="basica">
+            <span class="level-name">Basica</span>
+            <span class="level-desc">Segura y reversible. Ajustes recomendados sin riesgo.</span>
+          </button>
+          <button class="level is-active" data-level="media">
+            <span class="level-name">Media</span>
+            <span class="level-desc">Equilibrio. Desactiva procesos y efectos que restan FPS.</span>
+          </button>
+          <button class="level" data-level="agresiva">
+            <span class="level-name">Agresiva</span>
+            <span class="level-desc">Maximo rendimiento. Cambios avanzados de GPU, red y servicios.</span>
+          </button>
+          <div class="level-glow" id="levelGlow"></div>
+        </div>
+      </section>
+
+      <!-- PASO 3: PLAN -->
+      <section class="panel" id="panel-plan" hidden>
+        <div class="panel-head">
+          <h2><span class="step">3</span> Plan de optimizacion</h2>
+          <div class="plan-actions">
+            <label class="switch">
+              <input type="checkbox" id="chkRestore" checked />
+              <span class="slider"></span>
+              <span class="switch-label">Crear punto de restauracion</span>
+            </label>
+            <button id="btnApply" class="btn btn-primary" disabled>Aplicar seleccionados</button>
+          </div>
+        </div>
+        <div id="planList" class="plan-list"></div>
+      </section>
+
+      <!-- RESULTADOS -->
+      <section class="panel" id="panel-result" hidden>
+        <div class="panel-head">
+          <h2><span class="step">✓</span> Resultado</h2>
+          <button id="btnRevert" class="btn btn-ghost">Revertir cambios</button>
+        </div>
+        <div id="resultList" class="result-list"></div>
+      </section>
+    </main>
+
+    <!-- Overlay de progreso -->
+    <div id="overlay" class="overlay" hidden>
+      <div class="overlay-card">
+        <div class="pulse-ring"></div>
+        <p id="overlayText">Aplicando…</p>
+        <div class="progress"><div id="progressBar" class="progress-bar"></div></div>
+      </div>
+    </div>
+
+    <div id="toast" class="toast" hidden></div>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>

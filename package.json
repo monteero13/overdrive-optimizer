@@ -1,0 +1,22 @@
+{
+  "name": "overdrive-optimizer",
+  "version": "0.1.0",
+  "description": "Optimizador de PC para gaming: analiza hardware/software, detecta drivers desactualizados y aplica optimizaciones reversibles con punto de restauracion.",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev"
+  },
+  "keywords": [
+    "gaming",
+    "optimizer",
+    "windows",
+    "electron",
+    "performance"
+  ],
+  "author": "Alberto Montero",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^33.2.0"
+  }
+}
