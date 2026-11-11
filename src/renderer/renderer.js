@@ -280,7 +280,7 @@ async function loadProfiles() {
     const chips = [
       `<span class="autochip">${(p.tweaks || []).length} tweaks</span>`,
       p.gpuMax ? '<span class="autochip on">GPU máx</span>' : '',
-      (p.suspend || []).length ? `<span class="autochip">${p.suspend.length} suspende</span>` : '',
+      (p.suspend || []).length ? `<span class="autochip">${p.suspend.length} aligera</span>` : '',
       `<span class="autochip ${p.autoApply ? 'on' : ''}">${p.autoApply ? 'auto ON' : 'auto OFF'}</span>`,
     ].filter(Boolean).join('');
     return `<div class="pcard ${active ? 'active' : ''}" data-id="${p.id}">
@@ -352,7 +352,7 @@ async function openProfileEditor(profile) {
       ${tweaks.map((t) => `<label class="citem"><input type="checkbox" value="${t.id}" ${selTweaks.has(t.id) ? 'checked' : ''}/> ${t.title}</label>`).join('')}
     </div></div>
     ${state.gpuVendors.includes('nvidia') ? `<label class="citem"><input type="checkbox" id="pf-gpu" ${profile && profile.gpuMax ? 'checked' : ''}/> Subir GPU NVIDIA al máximo (power limit)</label>` : ''}
-    <div class="field"><label>Suspender durante la partida (se reanudan al salir)</label><div class="checklist" id="pf-susp">
+    <div class="field"><label>Aligerar durante la partida (RAM y prioridad; se restauran al salir)</label><div class="checklist" id="pf-susp">
       ${suspNames.length ? suspNames.map((n) => { const c = cands.find((x) => x.name === n); return `<label class="citem"><input type="checkbox" value="${n}" ${selSusp.has(n) ? 'checked' : ''}/> ${n}${c ? ` · ${c.memMB} MB` : ''}</label>`; }).join('') : '<div class="muted">No hay apps de fondo típicas abiertas ahora.</div>'}
     </div></div>
     <label class="citem"><input type="checkbox" id="pf-auto" ${profile && profile.autoApply ? 'checked' : (editing ? '' : 'checked')}/> Aplicar automáticamente al abrir el juego</label>`;
@@ -498,27 +498,35 @@ $('#btnEasyUndo').addEventListener('click', async () => {
   } catch (e) { toast('Error al deshacer: ' + e.message, true); } finally { overlay.hidden = true; }
 });
 
-// --- Modo Juego (suspender apps de fondo) ---
+// --- Modo Juego (aligerar apps de fondo: recortar RAM + bajar prioridad, sin congelarlas) ---
 let gameModeSusp = null;
 $('#btnGameMode').addEventListener('click', toggleGameMode);
+// El estado vive en el proceso principal: si la ventana se recarga, el botón no debe "olvidarlo".
+api.gameModeStatus().then((s) => {
+  if (s && s.active) {
+    gameModeSusp = [];
+    const btn = $('#btnGameMode');
+    btn.textContent = 'Desactivar Modo Juego'; btn.classList.add('live');
+  }
+}).catch(() => {});
 async function toggleGameMode() {
   const btn = $('#btnGameMode'), freed = $('#gameModeFreed');
   if (gameModeSusp) {
-    btn.disabled = true; btn.textContent = 'Reanudando…';
+    btn.disabled = true; btn.textContent = 'Restaurando…';
     await api.resumeProcs(gameModeSusp); gameModeSusp = null;
     btn.disabled = false; btn.textContent = 'Activar Modo Juego'; btn.classList.remove('live'); freed.hidden = true;
-    toast('Apps de fondo reanudadas.');
+    toast('Apps de fondo restauradas.');
     return;
   }
   btn.disabled = true; btn.textContent = 'Buscando apps…';
   const cands = await api.suspendCandidates();
   const names = (cands || []).map((c) => c.name);
   if (!names.length) { btn.disabled = false; btn.textContent = 'Activar Modo Juego'; toast('No hay apps de fondo típicas abiertas ahora.'); return; }
-  btn.textContent = 'Pausando…';
+  btn.textContent = 'Liberando RAM…';
   const r = await api.suspendProcs(names);
   btn.disabled = false; gameModeSusp = names;
   btn.textContent = 'Desactivar Modo Juego'; btn.classList.add('live');
-  freed.hidden = false; freed.textContent = `✓ ${r.count} apps en pausa · +${(r.freedMB / 1024).toFixed(1)} GB de RAM liberados`;
+  freed.hidden = false; freed.textContent = `✓ ${r.count} apps aligeradas · +${(r.freedMB / 1024).toFixed(1)} GB de RAM liberados`;
 }
 
 // --- Estado del equipo (vitales simples) ---

@@ -8,7 +8,7 @@ const { sampleMetrics } = require('./monitor');
 const { initUpdater, checkForUpdates, quitAndInstall } = require('./updater');
 const profiles = require('./profiles');
 const games = require('./games');
-const { suspend, resume } = require('./suspend');
+const background = require('./suspend');
 const benchmark = require('./benchmark');
 
 let mainWindow = null;
@@ -40,6 +40,11 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  background.init(app.getPath('userData'));
+  // Recuperación: si Overdrive se cerró mal con el Modo Juego activo, restaurar prioridades
+  // y reanudar apps que versiones antiguas (NtSuspendProcess) pudieran haber dejado congeladas.
+  background.restoreAll().catch(() => {});
+  background.rescueFrozen(games.KNOWN_BACKGROUND).catch(() => {});
   createWindow();
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -48,6 +53,17 @@ app.whenReady().then(() => {
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
+});
+
+// Al salir, devolver siempre las apps de fondo a su estado original.
+let restoredOnQuit = false;
+app.on('before-quit', (e) => {
+  if (restoredOnQuit) return;
+  e.preventDefault();
+  restoredOnQuit = true;
+  if (watcherTimer) clearInterval(watcherTimer);
+  const timeout = new Promise((r) => setTimeout(r, 8000));
+  Promise.race([background.restoreAll(), timeout]).finally(() => app.quit());
 });
 
 // ------------------------------- IPC -------------------------------
@@ -200,8 +216,9 @@ ipcMain.handle('profiles:revertNow', async (_e, id) => {
   return { ok: true };
 });
 
-ipcMain.handle('suspend:do', async (_e, names) => suspend(names));
-ipcMain.handle('suspend:undo', async (_e, names) => resume(names));
+ipcMain.handle('suspend:do', async (_e, names) => background.suspend(names, 'gamemode'));
+ipcMain.handle('suspend:undo', async () => background.resume(null, 'gamemode'));
+ipcMain.handle('suspend:status', async () => ({ active: background.isActive('gamemode') }));
 
 // ------------------------- Benchmark -------------------------
 ipcMain.handle('bench:run', async () => benchmark.run());
@@ -238,7 +255,7 @@ async function applyProfile(p) {
   }
   let freedMB = 0;
   if (p.suspend && p.suspend.length) {
-    const r = await suspend(p.suspend);
+    const r = await background.suspend(p.suspend, 'profile:' + p.id);
     freedMB = r.freedMB || 0;
   }
   return { freedMB };
@@ -253,7 +270,7 @@ async function revertProfile(p) {
     const t = getTweak('nvidia-max-perf');
     if (t) { try { await psRun(t.revert); } catch (_) {} }
   }
-  if (p.suspend && p.suspend.length) await resume(p.suspend);
+  if (p.suspend && p.suspend.length) await background.resume(null, 'profile:' + p.id);
 }
 
 function notifyRenderer(channel, data) {
@@ -275,7 +292,19 @@ function baseName(exe) {
 }
 
 let watcherTimer = null;
+let polling = false;
 async function pollGames() {
+  // setInterval no espera: sin este cerrojo, un perfil lento (tweaks de hasta 120 s)
+  // provocaba sondeos solapados lanzando PowerShell en paralelo cada 6 s.
+  if (polling) return;
+  polling = true;
+  try {
+    await pollGamesOnce();
+  } finally {
+    polling = false;
+  }
+}
+async function pollGamesOnce() {
   const list = profiles.all().filter((p) => p.autoApply && p.exe);
   if (!list.length) return;
   const running = await runningProcNames();

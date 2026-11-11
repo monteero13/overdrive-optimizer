@@ -39,6 +39,7 @@ contextBridge.exposeInMainWorld('overdrive', {
   suspendCandidates: () => ipcRenderer.invoke('games:suspendCandidates'),
   suspendProcs: (names) => ipcRenderer.invoke('suspend:do', names),
   resumeProcs: (names) => ipcRenderer.invoke('suspend:undo', names),
+  gameModeStatus: () => ipcRenderer.invoke('suspend:status'),
   onProfileEvent: (cb) => {
     const handler = (_e, data) => cb(data);
     ipcRenderer.on('profile:event', handler);

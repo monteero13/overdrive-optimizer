@@ -122,9 +122,11 @@ async function runningProcesses() {
   }
 }
 
-// Procesos de fondo típicos que es seguro suspender durante el juego.
+// Procesos de fondo típicos que se pueden aligerar (recortar RAM / bajar prioridad) durante el juego.
+const KNOWN_BACKGROUND = ['chrome', 'msedge', 'firefox', 'brave', 'Discord', 'Spotify', 'OneDrive', 'Telegram', 'Teams', 'Slack', 'steamwebhelper', 'EpicGamesLauncher', 'GoogleDriveFS'];
+
 async function suspendCandidates() {
-  const known = ['chrome', 'msedge', 'firefox', 'brave', 'Discord', 'Spotify', 'OneDrive', 'Telegram', 'Teams', 'Slack', 'steamwebhelper', 'EpicGamesLauncher', 'GoogleDriveFS'];
+  const known = KNOWN_BACKGROUND;
   const script = `
     $ErrorActionPreference='SilentlyContinue'
     $names = @(${known.map((n) => `'${n}'`).join(',')})
@@ -142,4 +144,4 @@ async function suspendCandidates() {
   }
 }
 
-module.exports = { steamGames, runningProcesses, suspendCandidates };
+module.exports = { steamGames, runningProcesses, suspendCandidates, KNOWN_BACKGROUND };
