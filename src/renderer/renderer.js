@@ -51,22 +51,37 @@ async function runScan() {
   $('#driversBox').hidden = true;
   show('#scanning');
   try {
-    const data = await api.analyze();
+    const data = await api.analyze(); // solo hardware: rapido
     state.analysis = data;
     state.hasSSD = (data.disks || []).some((d) => /ssd/i.test(d.media || ''));
     state.gpuVendors = detectVendors(data.gpu);
     renderSpecs(data);
-    renderDrivers(data.driversOutdated || []);
     if (!data.admin) $('#adminBadge').hidden = false;
     show('#panel-level');
     await loadTweaks();
     show('#panel-plan');
+    // El escaneo de drivers es lento: va aparte y NO bloquea el plan.
+    scanDrivers();
   } catch (err) {
     toast('Error al analizar: ' + err.message, true);
   } finally {
     $('#scanning').hidden = true;
     $('#btnScan').disabled = false;
     $('#btnScan').querySelector('.btn-label').textContent = 'Volver a escanear';
+  }
+}
+
+// Escaneo de drivers en segundo plano (no bloquea la interfaz).
+async function scanDrivers() {
+  const box = $('#driversBox');
+  const cont = $('#driversList');
+  box.hidden = false;
+  cont.innerHTML = '<div class="hint">Buscando drivers… (puede tardar unos segundos)</div>';
+  try {
+    const drv = await api.analyzeDrivers();
+    renderDrivers(drv.driversOutdated || []);
+  } catch (err) {
+    cont.innerHTML = '<div class="hint">No se pudieron comprobar los drivers en este equipo.</div>';
   }
 }
 

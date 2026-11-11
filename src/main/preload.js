@@ -4,6 +4,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 // API segura expuesta al renderer. No se expone ipcRenderer directamente.
 contextBridge.exposeInMainWorld('overdrive', {
   analyze: () => ipcRenderer.invoke('system:analyze'),
+  analyzeDrivers: () => ipcRenderer.invoke('system:drivers'),
   listTweaks: (level, caps) => ipcRenderer.invoke('tweaks:list', { level, caps }),
   restorePoint: () => ipcRenderer.invoke('system:restorePoint'),
   apply: (ids) => ipcRenderer.invoke('tweaks:apply', { ids }),

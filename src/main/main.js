@@ -2,7 +2,7 @@
 const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 const { psRun } = require('./ps');
-const { analyze } = require('./system');
+const { analyzeHardware, analyzeDrivers } = require('./system');
 const { tweaksForLevel, getTweak } = require('./tweaks');
 const { sampleMetrics } = require('./monitor');
 const { initUpdater, checkForUpdates, quitAndInstall } = require('./updater');
@@ -49,7 +49,11 @@ app.on('window-all-closed', () => {
 // ------------------------------- IPC -------------------------------
 
 ipcMain.handle('system:analyze', async () => {
-  return await analyze();
+  return await analyzeHardware();
+});
+
+ipcMain.handle('system:drivers', async () => {
+  return await analyzeDrivers();
 });
 
 // Devuelve los tweaks del nivel con su estado actual (on/off/unknown).
