@@ -4,6 +4,8 @@ const path = require('path');
 const { psRun } = require('./ps');
 const { analyze } = require('./system');
 const { tweaksForLevel, getTweak } = require('./tweaks');
+const { sampleMetrics } = require('./monitor');
+const { initUpdater, checkForUpdates, quitAndInstall } = require('./updater');
 
 let mainWindow = null;
 
@@ -25,6 +27,12 @@ function createWindow() {
 
   mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   if (process.argv.includes('--dev')) mainWindow.webContents.openDevTools({ mode: 'detach' });
+
+  // Auto-updater: inicializa y comprueba al arrancar (solo en app empaquetada).
+  initUpdater(mainWindow);
+  mainWindow.webContents.once('did-finish-load', () => {
+    setTimeout(() => checkForUpdates(), 3000);
+  });
 }
 
 app.whenReady().then(() => {
@@ -104,7 +112,7 @@ ipcMain.handle('tweaks:apply', async (e, { ids }) => {
   for (let i = 0; i < ids.length; i++) {
     const t = getTweak(ids[i]);
     if (!t) continue;
-    e.sender.send('tweaks:progress', { id: t.id, title: t.title, index: i, total: ids.length });
+    e.sender.send('tweaks:progress', { id: t.id, title: t.title, index: i, total: ids.length, isInstall: !!t.isInstall });
     try {
       const out = (await psRun(t.apply, { timeout: t.timeout || 120000 })).trim();
       results.push({ id: t.id, ok: true, needsReboot: !!t.needsReboot, out });
@@ -130,6 +138,21 @@ ipcMain.handle('tweaks:revert', async (e, { ids }) => {
     }
   }
   return results;
+});
+
+// Monitor en tiempo real: devuelve una muestra de métricas.
+ipcMain.handle('monitor:sample', async () => {
+  return await sampleMetrics();
+});
+
+// Auto-updater
+ipcMain.handle('update:check', async () => {
+  await checkForUpdates();
+  return true;
+});
+ipcMain.handle('update:install', async () => {
+  quitAndInstall();
+  return true;
 });
 
 ipcMain.handle('app:openExternal', async (_e, url) => {

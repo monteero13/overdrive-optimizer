@@ -15,4 +15,14 @@ contextBridge.exposeInMainWorld('overdrive', {
     ipcRenderer.on('tweaks:progress', handler);
     return () => ipcRenderer.removeListener('tweaks:progress', handler);
   },
+  // Monitor en tiempo real
+  monitorSample: () => ipcRenderer.invoke('monitor:sample'),
+  // Auto-updater
+  checkUpdates: () => ipcRenderer.invoke('update:check'),
+  installUpdate: () => ipcRenderer.invoke('update:install'),
+  onUpdateStatus: (cb) => {
+    const handler = (_e, data) => cb(data);
+    ipcRenderer.on('update:status', handler);
+    return () => ipcRenderer.removeListener('update:status', handler);
+  },
 });

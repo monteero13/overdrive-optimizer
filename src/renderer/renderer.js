@@ -225,18 +225,22 @@ async function applyPlan() {
 
   // Punto de restauracion
   if ($('#chkRestore').checked) {
-    $('#overlayText').textContent = 'Creando punto de restauracion…';
+    $('#overlayText').textContent = 'Creando punto de restauración… (puede tardar hasta 1 min)';
+    bar.classList.add('indet');
     const rp = await api.restorePoint();
+    bar.classList.remove('indet');
     if (!rp.ok) {
-      toast('No se pudo crear el punto de restauracion: ' + (rp.message || ''), true);
+      toast('No se pudo crear el punto de restauración: ' + (rp.message || ''), true);
       // Continuamos igualmente, pero avisado.
     }
   }
 
   const off = api.onProgress((p) => {
-    if (p.done) { bar.style.width = '100%'; return; }
-    $('#overlayText').textContent = `Aplicando: ${p.title}`;
-    bar.style.width = `${Math.round((p.index / p.total) * 100)}%`;
+    if (p.done) { bar.classList.remove('indet'); bar.style.width = '100%'; return; }
+    const long = !!p.isInstall;
+    $('#overlayText').textContent = (long ? 'Instalando: ' : 'Aplicando: ') + p.title + (long ? ' (puede tardar varios minutos)' : '');
+    bar.classList.toggle('indet', long);
+    if (!long) bar.style.width = `${Math.round((p.index / p.total) * 100)}%`;
   });
 
   let results = [];
@@ -272,6 +276,172 @@ function renderResults(results) {
     </div>`;
   }).join('');
 }
+
+// ----------------------------- Monitor en tiempo real -----------------------------
+const mon = { timer: null, running: false, hist: {} };
+['gpuTemp', 'gpuUtil', 'cpuLoad', 'ram'].forEach((k) => (mon.hist[k] = []));
+
+$('#btnMonitor').addEventListener('click', () => (mon.running ? stopMonitor() : startMonitor()));
+
+function startMonitor() {
+  mon.running = true;
+  const b = $('#btnMonitor');
+  b.textContent = 'Detener monitor';
+  b.classList.add('live');
+  $('#monitorGrid').hidden = false;
+  $('#monitorHint').hidden = true;
+  tickMonitor();
+  mon.timer = setInterval(tickMonitor, 1000);
+}
+function stopMonitor() {
+  mon.running = false;
+  clearInterval(mon.timer);
+  const b = $('#btnMonitor');
+  b.textContent = 'Iniciar monitor';
+  b.classList.remove('live');
+}
+
+async function tickMonitor() {
+  let m;
+  try { m = await api.monitorSample(); } catch (_) { return; }
+  if (!mon.running) return;
+  renderMonitor(m);
+}
+
+function setVal(id, text, cls) {
+  const el = $('#m-' + id);
+  if (!el) return;
+  el.textContent = text;
+  el.className = 'mval' + (cls ? ' ' + cls : '');
+}
+function setBar(id, pct, color) {
+  const el = $('#b-' + id);
+  if (!el) return;
+  el.style.width = Math.max(0, Math.min(100, pct)) + '%';
+  if (color) el.style.background = color;
+}
+function pushHist(key, v) {
+  const a = mon.hist[key];
+  a.push(v);
+  if (a.length > 60) a.shift();
+}
+function tempClass(c) {
+  if (c == null) return '';
+  if (c >= 85) return 'danger';
+  if (c >= 75) return 'warn';
+  if (c < 60) return 'ok';
+  return '';
+}
+function tempColor(c) {
+  if (c == null) return null;
+  if (c >= 85) return 'var(--danger)';
+  if (c >= 75) return 'var(--warn)';
+  return 'var(--accent-grad)';
+}
+
+function renderMonitor(m) {
+  const g = m.gpu;
+  if (g) {
+    setVal('gpuTemp', g.tempC != null ? g.tempC + '°C' : 'N/D', tempClass(g.tempC));
+    setBar('gpuTemp', g.tempC != null ? g.tempC : 0, tempColor(g.tempC));
+    pushHist('gpuTemp', g.tempC || 0);
+
+    setVal('gpuUtil', g.util != null ? g.util + '%' : 'N/D');
+    setBar('gpuUtil', g.util || 0);
+    pushHist('gpuUtil', g.util || 0);
+
+    const pPct = g.powerLimitW ? (g.powerW / g.powerLimitW) * 100 : 0;
+    setVal('gpuPower', g.powerW != null ? g.powerW.toFixed(0) + ' W' : 'N/D');
+    setBar('gpuPower', pPct);
+    $('#m-gpuExtra').textContent =
+      `reloj ${g.clockMHz ?? '—'} MHz · fan ${g.fanPct != null ? g.fanPct + '%' : '—'} · límite ${g.powerLimitW ?? '—'} W`;
+  } else {
+    ['gpuTemp', 'gpuUtil', 'gpuPower'].forEach((k) => setVal(k, 'N/D'));
+    $('#m-gpuExtra').textContent = 'GPU NVIDIA no detectada';
+  }
+
+  const c = m.cpu;
+  if (c) {
+    setVal('cpuLoad', c.load != null ? c.load + '%' : 'N/D');
+    setBar('cpuLoad', c.load || 0);
+    pushHist('cpuLoad', c.load || 0);
+    setVal('cpuClock', c.clock != null ? (c.clock / 1000).toFixed(2) + ' GHz' : 'N/D');
+    $('#m-cpuExtra').textContent = c.temp != null ? `temp ACPI ${c.temp}°C (zona placa)` : 'temp ACPI no disponible';
+  }
+
+  const r = m.ram;
+  if (r && r.totalGB) {
+    const pct = Math.round((r.usedGB / r.totalGB) * 100);
+    setVal('ram', `${r.usedGB} / ${r.totalGB} GB`);
+    setBar('ram', pct);
+    pushHist('ram', pct);
+  }
+
+  drawSpark('s-gpuTemp', mon.hist.gpuTemp, 100);
+  drawSpark('s-gpuUtil', mon.hist.gpuUtil, 100);
+  drawSpark('s-cpuLoad', mon.hist.cpuLoad, 100);
+  drawSpark('s-ram', mon.hist.ram, 100);
+}
+
+function drawSpark(id, data, max) {
+  const cv = document.getElementById(id);
+  if (!cv) return;
+  const ctx = cv.getContext('2d');
+  const w = cv.width, h = cv.height;
+  ctx.clearRect(0, 0, w, h);
+  if (data.length < 2) return;
+  const n = data.length;
+  const stepX = w / (60 - 1);
+  const grad = ctx.createLinearGradient(0, 0, w, 0);
+  grad.addColorStop(0, '#6c7bff');
+  grad.addColorStop(1, '#37e2d5');
+  // área
+  ctx.beginPath();
+  data.forEach((v, i) => {
+    const x = i * stepX;
+    const y = h - (Math.min(v, max) / max) * (h - 4) - 2;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.lineTo((n - 1) * stepX, h);
+  ctx.lineTo(0, h);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(108,123,255,0.12)';
+  ctx.fill();
+  // línea
+  ctx.beginPath();
+  data.forEach((v, i) => {
+    const x = i * stepX;
+    const y = h - (Math.min(v, max) / max) * (h - 4) - 2;
+    i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+  });
+  ctx.strokeStyle = grad;
+  ctx.lineWidth = 2;
+  ctx.lineJoin = 'round';
+  ctx.stroke();
+}
+
+// ----------------------------- Auto-updater -----------------------------
+$('#btnCheckUpdate').addEventListener('click', () => {
+  $('#updateStatus').textContent = 'Comprobando actualizaciones…';
+  api.checkUpdates();
+});
+$('#btnInstallUpdate').addEventListener('click', () => api.installUpdate());
+
+api.onUpdateStatus((d) => {
+  const st = $('#updateStatus');
+  const prog = $('#updateProgress');
+  const installBtn = $('#btnInstallUpdate');
+  switch (d.status) {
+    case 'checking': st.textContent = 'Comprobando actualizaciones…'; break;
+    case 'available': st.textContent = `Nueva versión ${d.version} disponible, descargando…`; prog.hidden = false; break;
+    case 'none': st.textContent = 'Estás en la última versión. ✓'; break;
+    case 'downloading': st.textContent = `Descargando actualización… ${d.percent}%`; prog.hidden = false; $('#updateBar').style.width = d.percent + '%'; break;
+    case 'downloaded': st.textContent = `Versión ${d.version} lista para instalar.`; installBtn.hidden = false; prog.hidden = true; break;
+    case 'dev': st.textContent = 'Las actualizaciones solo funcionan en la versión instalada (.exe).'; break;
+    case 'error': st.textContent = 'No se pudo comprobar actualizaciones: ' + (d.message || ''); break;
+    default: break;
+  }
+});
 
 // ----------------------------- Revertir -----------------------------
 $('#btnRevert').addEventListener('click', async () => {

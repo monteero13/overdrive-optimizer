@@ -90,6 +90,61 @@
         </div>
         <div id="resultList" class="result-list"></div>
       </section>
+
+      <!-- MONITOR EN TIEMPO REAL -->
+      <section class="panel" id="panel-monitor">
+        <div class="panel-head">
+          <h2><span class="step">◉</span> Monitor en tiempo real</h2>
+          <button id="btnMonitor" class="btn btn-primary">Iniciar monitor</button>
+        </div>
+        <div id="monitorGrid" class="monitor-grid" hidden>
+          <div class="mtile">
+            <div class="mtile-top"><span class="mlabel">GPU Temp</span><span class="mval" id="m-gpuTemp">—</span></div>
+            <div class="bar"><i id="b-gpuTemp"></i></div>
+            <canvas class="spark" id="s-gpuTemp" width="240" height="34"></canvas>
+          </div>
+          <div class="mtile">
+            <div class="mtile-top"><span class="mlabel">GPU Uso</span><span class="mval" id="m-gpuUtil">—</span></div>
+            <div class="bar"><i id="b-gpuUtil"></i></div>
+            <canvas class="spark" id="s-gpuUtil" width="240" height="34"></canvas>
+          </div>
+          <div class="mtile">
+            <div class="mtile-top"><span class="mlabel">GPU Potencia</span><span class="mval" id="m-gpuPower">—</span></div>
+            <div class="bar"><i id="b-gpuPower"></i></div>
+            <div class="msub" id="m-gpuExtra">reloj — · fan —</div>
+          </div>
+          <div class="mtile">
+            <div class="mtile-top"><span class="mlabel">CPU Uso</span><span class="mval" id="m-cpuLoad">—</span></div>
+            <div class="bar"><i id="b-cpuLoad"></i></div>
+            <canvas class="spark" id="s-cpuLoad" width="240" height="34"></canvas>
+          </div>
+          <div class="mtile">
+            <div class="mtile-top"><span class="mlabel">CPU Reloj</span><span class="mval" id="m-cpuClock">—</span></div>
+            <div class="msub" id="m-cpuExtra">temp ACPI —</div>
+          </div>
+          <div class="mtile">
+            <div class="mtile-top"><span class="mlabel">RAM</span><span class="mval" id="m-ram">—</span></div>
+            <div class="bar"><i id="b-ram"></i></div>
+            <canvas class="spark" id="s-ram" width="240" height="34"></canvas>
+          </div>
+        </div>
+        <div id="monitorHint" class="hint">Pulsa iniciar para ver temperaturas, uso y relojes actualizándose cada segundo.</div>
+      </section>
+
+      <!-- ACTUALIZACIONES -->
+      <section class="panel update-panel" id="panel-update">
+        <div class="update-row">
+          <div class="update-info">
+            <span class="update-icon">⟳</span>
+            <span id="updateStatus">Actualizaciones: pulsa comprobar.</span>
+          </div>
+          <div class="update-actions">
+            <button id="btnCheckUpdate" class="btn btn-ghost">Comprobar</button>
+            <button id="btnInstallUpdate" class="btn btn-primary" hidden>Reiniciar e instalar</button>
+          </div>
+        </div>
+        <div class="update-progress" id="updateProgress" hidden><div id="updateBar" class="progress-bar"></div></div>
+      </section>
     </main>
 
     <!-- Overlay de progreso -->

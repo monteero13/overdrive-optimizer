@@ -315,6 +315,41 @@ const TWEAKS = [
       'ok'`,
   },
 
+  // -------------------- RED (ancho de banda) --------------------
+  {
+    id: 'qos-bandwidth',
+    title: 'Liberar ancho de banda reservado (QoS)',
+    desc: 'Elimina el 20% de ancho de banda que Windows reserva por defecto para QoS, dejandolo disponible.',
+    category: 'Red',
+    levels: ['media', 'agresiva'],
+    risk: 'medium',
+    needsAdmin: true,
+    check: `$v = (Get-ItemProperty 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Psched' -Name NonBestEffortLimit -ErrorAction SilentlyContinue).NonBestEffortLimit; if ($v -eq 0) { 'on' } else { 'off' }`,
+    apply: `
+      New-Item 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Psched' -Force | Out-Null
+      Set-ItemProperty 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Psched' -Name NonBestEffortLimit -Value 0 -Type DWord
+      'ok'`,
+    revert: `Remove-ItemProperty 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Psched' -Name NonBestEffortLimit -ErrorAction SilentlyContinue; 'ok'`,
+  },
+  {
+    id: 'tcp-throughput',
+    title: 'TCP a maxima velocidad (autotuning + RSS)',
+    desc: 'Activa el autoajuste de ventana TCP y Receive-Side Scaling para aprovechar todo el ancho de banda en descargas.',
+    category: 'Red',
+    levels: ['agresiva'],
+    risk: 'medium',
+    needsAdmin: true,
+    check: `$a = (Get-NetTCPSetting -SettingName Internet -ErrorAction SilentlyContinue).AutoTuningLevelLocal; if ("$a" -eq 'Normal') { 'on' } else { 'off' }`,
+    apply: `
+      Set-NetTCPSetting -SettingName Internet -AutoTuningLevelLocal Normal -ErrorAction SilentlyContinue
+      netsh int tcp set global rss=enabled | Out-Null
+      netsh int tcp set global autotuninglevel=normal | Out-Null
+      'ok'`,
+    revert: `
+      Set-NetTCPSetting -SettingName Internet -AutoTuningLevelLocal Normal -ErrorAction SilentlyContinue
+      'ok'`,
+  },
+
   // -------------------- GPU (ultra rendimiento) --------------------
   {
     id: 'nvidia-max-perf',
