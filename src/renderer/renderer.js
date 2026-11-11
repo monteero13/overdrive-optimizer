@@ -221,9 +221,17 @@ function updateApplyBtn() {
 // ----------------------------- Aplicar -----------------------------
 $('#btnApply').addEventListener('click', applyPlan);
 
+let applyAbort = false;
+$('#btnCancelApply').addEventListener('click', () => {
+  applyAbort = true;
+  $('#overlay').hidden = true;
+  toast('Cancelado. Los cambios ya iniciados pueden completarse en segundo plano.');
+});
+
 async function applyPlan() {
   const ids = [...state.selected];
   if (!ids.length) return;
+  applyAbort = false;
 
   // Aviso si hay tweaks que requieren admin y no lo somos.
   const needsAdmin = state.tweaks.some((t) => ids.includes(t.id) && t.needsAdmin);
@@ -240,10 +248,11 @@ async function applyPlan() {
 
   // Punto de restauracion
   if ($('#chkRestore').checked) {
-    $('#overlayText').textContent = 'Creando punto de restauración… (puede tardar hasta 1 min)';
+    $('#overlayText').textContent = 'Creando punto de restauración… (hasta ~1 min · puedes Cancelar)';
     bar.classList.add('indet');
     const rp = await api.restorePoint();
     bar.classList.remove('indet');
+    if (applyAbort) return;
     if (!rp.ok) {
       toast('No se pudo crear el punto de restauración: ' + (rp.message || ''), true);
       // Continuamos igualmente, pero avisado.
@@ -253,7 +262,8 @@ async function applyPlan() {
   const off = api.onProgress((p) => {
     if (p.done) { bar.classList.remove('indet'); bar.style.width = '100%'; return; }
     const long = !!p.isInstall;
-    $('#overlayText').textContent = (long ? 'Instalando: ' : 'Aplicando: ') + p.title + (long ? ' (puede tardar varios minutos)' : '');
+    const step = `(${p.index + 1}/${p.total}) `;
+    $('#overlayText').textContent = (long ? 'Instalando ' : 'Aplicando ') + step + p.title + (long ? ' (puede tardar varios minutos)' : '');
     bar.classList.toggle('indet', long);
     if (!long) bar.style.width = `${Math.round((p.index / p.total) * 100)}%`;
   });
@@ -265,6 +275,7 @@ async function applyPlan() {
     toast('Error al aplicar: ' + err.message, true);
   }
   off();
+  if (applyAbort) return;
   overlay.hidden = true;
 
   state.applied = results.filter((r) => r.ok).map((r) => r.id);

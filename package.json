@@ -1,6 +1,6 @@
 {
   "name": "overdrive-optimizer",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Optimizador de PC para gaming: analiza hardware/software, detecta drivers desactualizados y aplica optimizaciones reversibles con punto de restauracion.",
   "main": "src/main/main.js",
   "scripts": {

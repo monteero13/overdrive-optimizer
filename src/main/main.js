@@ -105,7 +105,12 @@ ipcMain.handle('system:restorePoint', async () => {
     } catch {
       "error: $($_.Exception.Message)"
     }`;
-  const out = (await psRun(script, { timeout: 180000 })).trim();
+  let out;
+  try {
+    out = (await psRun(script, { timeout: 75000 })).trim();
+  } catch (e) {
+    return { ok: false, message: 'tardó demasiado o Restaurar Sistema está desactivado' };
+  }
   if (out.startsWith('ok')) return { ok: true };
   return { ok: false, message: out.replace(/^error:\s*/, '') };
 });
