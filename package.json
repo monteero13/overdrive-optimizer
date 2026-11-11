@@ -21,7 +21,8 @@
       {
         "provider": "github",
         "owner": "monteero13",
-        "repo": "overdrive-optimizer"
+        "repo": "overdrive-optimizer",
+        "releaseType": "release"
       }
     ],
     "files": [
