@@ -173,14 +173,17 @@ ipcMain.handle('app:openExternal', async (_e, url) => {
 // Relanza la app con privilegios de administrador (UAC).
 ipcMain.handle('app:relaunchAdmin', async () => {
   const exe = process.execPath;
-  const appPath = app.getAppPath();
-  const args = process.defaultApp ? `'${appPath}'` : '';
-  const script = `Start-Process -FilePath '${exe}' -ArgumentList ${args ? args : "''"} -Verb RunAs`;
+  // En app empaquetada NO se pasa -ArgumentList (un '' vacío hace fallar Start-Process).
+  // En desarrollo hay que pasar la ruta de la app como argumento.
+  const script = process.defaultApp
+    ? `Start-Process -FilePath '${exe}' -ArgumentList '${app.getAppPath()}' -Verb RunAs`
+    : `Start-Process -FilePath '${exe}' -Verb RunAs`;
   try {
     await psRun(script);
     app.quit();
     return { ok: true };
   } catch (err) {
+    // Incluye el caso de que el usuario rechace el UAC.
     return { ok: false, message: err.message };
   }
 });

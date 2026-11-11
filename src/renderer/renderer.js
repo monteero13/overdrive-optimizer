@@ -228,8 +228,11 @@ async function applyPlan() {
   // Aviso si hay tweaks que requieren admin y no lo somos.
   const needsAdmin = state.tweaks.some((t) => ids.includes(t.id) && t.needsAdmin);
   if (needsAdmin && state.analysis && !state.analysis.admin) {
-    toast('Algunas optimizaciones requieren administrador. Relanzando con permisos…', true);
-    await api.relaunchAdmin();
+    toast('Algunas optimizaciones requieren administrador. Acepta el aviso de Windows (UAC)…');
+    const r = await api.relaunchAdmin();
+    if (!r || !r.ok) {
+      toast('No se pudo reabrir como administrador. Cierra la app y ábrela con clic derecho → "Ejecutar como administrador".', true);
+    }
     return;
   }
 
