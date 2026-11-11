@@ -1,5 +1,7 @@
 'use strict';
-const api = window.overdrive;
+// Si por lo que sea el puente (preload) no está, usamos un stub inofensivo para
+// que la interfaz nunca se quede en blanco por un error al cargar.
+const api = window.overdrive || new Proxy({}, { get: () => () => Promise.resolve(null) });
 const $ = (s) => document.querySelector(s);
 const $$ = (s) => [...document.querySelectorAll(s)];
 
@@ -154,20 +156,19 @@ function updateApplyBtn() {
 }
 
 // ----------------------------- aplicar / revertir -----------------------------
-$('#btnApply').addEventListener('click', applyPlan);
-async function applyPlan() {
-  const ids = [...state.selected];
-  if (!ids.length) return;
+// Motor común de aplicación (usado por modo Experto y modo Fácil).
+// Devuelve los resultados, o null si hubo que relanzar como admin.
+async function runApply(ids, useRestore) {
   const needsAdmin = state.tweaks.some((t) => ids.includes(t.id) && t.needsAdmin);
   if (needsAdmin && state.analysis && !state.analysis.admin) {
     toast('Algunas optimizaciones requieren administrador. Acepta el aviso de Windows (UAC)…');
     const r = await api.relaunchAdmin();
     if (!r || !r.ok) toast('No se pudo reabrir como administrador. Cierra y abre con clic derecho → "Ejecutar como administrador".', true);
-    return;
+    return null;
   }
   const overlay = $('#overlay'), bar = $('#progressBar');
   overlay.hidden = false; bar.style.width = '0';
-  if ($('#chkRestore').checked) {
+  if (useRestore) {
     bar.classList.add('indet'); let secs = 0;
     const fmt = () => `Creando punto de restauración… ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
     $('#overlayText').textContent = fmt();
@@ -189,11 +190,20 @@ async function applyPlan() {
   try { results = await api.apply(ids); } catch (err) { toast('Error al aplicar: ' + err.message, true); }
   off(); overlay.hidden = true;
   state.applied = results.filter((r) => r.ok).map((r) => r.id);
+  await loadTweaks();
+  return results;
+}
+
+$('#btnApply').addEventListener('click', applyPlan);
+async function applyPlan() {
+  const ids = [...state.selected];
+  if (!ids.length) return;
+  const results = await runApply(ids, $('#chkRestore').checked);
+  if (!results) return;
   renderResults(results); show('#panel-result');
   const okCount = results.filter((r) => r.ok).length;
   const reboot = results.some((r) => r.ok && r.needsReboot);
   toast(`${okCount}/${results.length} aplicadas${reboot ? ' · requiere reinicio' : ''}`);
-  await loadTweaks();
 }
 function renderResults(results) {
   const byId = Object.fromEntries(state.tweaks.map((t) => [t.id, t.title]));
@@ -430,6 +440,98 @@ function renderBench() {
     row('Disco escritura', b.diskWriteMBs, a?.diskWriteMBs, 'MB/s', true),
   ].join('') + '</div>';
 }
+
+// ----------------------------- Modo Fácil / Experto -----------------------------
+function setMode(mode) {
+  const easy = mode === 'easy';
+  $$('.ms-btn').forEach((b) => b.classList.toggle('is-on', b.dataset.mode === mode));
+  $('#easyView').hidden = !easy;
+  $('#nav').hidden = easy;
+  if (easy) {
+    $$('.tab').forEach((t) => t.classList.remove('is-active'));
+  } else if (!$('.tab.is-active')) {
+    $('.nav-item[data-tab="analisis"]').classList.add('is-active');
+    $('.tab[data-tab="analisis"]').classList.add('is-active');
+  }
+  try { localStorage.setItem('ovd-mode', mode); } catch (_) {}
+}
+$('#modeSwitch').addEventListener('click', (e) => { const b = e.target.closest('.ms-btn'); if (b) setMode(b.dataset.mode); });
+(function initMode() { let m = 'easy'; try { m = localStorage.getItem('ovd-mode') || 'easy'; } catch (_) {} setMode(m); })();
+
+// --- Optimizar en un clic ---
+let easyBusy = false;
+$('#btnEasyOptimize').addEventListener('click', easyOptimize);
+async function easyOptimize() {
+  if (easyBusy) return; easyBusy = true;
+  const orb = $('#easyOrb'), btn = $('#btnEasyOptimize'), status = $('#easyStatus');
+  btn.disabled = true; orb.classList.remove('done'); orb.classList.add('busy');
+  status.textContent = 'Analizando tu equipo…';
+  try {
+    if (!state.analysis) {
+      const d = await api.analyze();
+      state.analysis = d; state.hasSSD = (d.disks || []).some((x) => /ssd/i.test(x.media || '')); state.gpuVendors = detectVendors(d.gpu);
+      if (!d.admin) $('#adminBadge').hidden = false;
+    }
+    state.level = 'media';
+    const list = await api.listTweaks('media', { hasSSD: state.hasSSD, gpuVendors: state.gpuVendors });
+    state.tweaks = list;
+    const ids = list.filter((t) => t.state !== 'on' && !t.isInstall && !t.informational).map((t) => t.id);
+    if (!ids.length) { orb.classList.remove('busy'); orb.classList.add('done'); status.innerHTML = 'Tu PC ya estaba optimizado. <span class="gain">✓</span>'; return; }
+    status.textContent = 'Aplicando mejoras…';
+    const results = await runApply(ids, true);
+    orb.classList.remove('busy');
+    if (!results) { status.textContent = 'Necesita permisos de administrador. Acepta el aviso de Windows.'; return; }
+    const ok = results.filter((r) => r.ok).length;
+    orb.classList.add('done');
+    status.innerHTML = `Listo. <span class="gain">${ok} mejoras</span> aplicadas. Tu PC está preparado para jugar.`;
+    $('#btnEasyUndo').hidden = state.applied.length === 0;
+  } catch (err) { orb.classList.remove('busy'); status.textContent = 'No se pudo optimizar: ' + err.message; }
+  finally { btn.disabled = false; easyBusy = false; }
+}
+$('#btnEasyUndo').addEventListener('click', async () => {
+  if (!state.applied.length) { toast('No hay nada que deshacer.'); return; }
+  const overlay = $('#overlay'); $('#overlayText').textContent = 'Deshaciendo…'; $('#overlayNote').textContent = ''; $('#progressBar').style.width = '50%'; overlay.hidden = false;
+  try {
+    await api.revert(state.applied); $('#progressBar').style.width = '100%';
+    state.applied = []; $('#btnEasyUndo').hidden = true; $('#easyOrb').classList.remove('done');
+    $('#easyStatus').textContent = 'Optimización deshecha. Tu PC volvió al estado anterior.'; await loadTweaks();
+  } catch (e) { toast('Error al deshacer: ' + e.message, true); } finally { overlay.hidden = true; }
+});
+
+// --- Modo Juego (suspender apps de fondo) ---
+let gameModeSusp = null;
+$('#btnGameMode').addEventListener('click', toggleGameMode);
+async function toggleGameMode() {
+  const btn = $('#btnGameMode'), freed = $('#gameModeFreed');
+  if (gameModeSusp) {
+    btn.disabled = true; btn.textContent = 'Reanudando…';
+    await api.resumeProcs(gameModeSusp); gameModeSusp = null;
+    btn.disabled = false; btn.textContent = 'Activar Modo Juego'; btn.classList.remove('live'); freed.hidden = true;
+    toast('Apps de fondo reanudadas.');
+    return;
+  }
+  btn.disabled = true; btn.textContent = 'Buscando apps…';
+  const cands = await api.suspendCandidates();
+  const names = (cands || []).map((c) => c.name);
+  if (!names.length) { btn.disabled = false; btn.textContent = 'Activar Modo Juego'; toast('No hay apps de fondo típicas abiertas ahora.'); return; }
+  btn.textContent = 'Pausando…';
+  const r = await api.suspendProcs(names);
+  btn.disabled = false; gameModeSusp = names;
+  btn.textContent = 'Desactivar Modo Juego'; btn.classList.add('live');
+  freed.hidden = false; freed.textContent = `✓ ${r.count} apps en pausa · +${(r.freedMB / 1024).toFixed(1)} GB de RAM liberados`;
+}
+
+// --- Estado del equipo (vitales simples) ---
+$('#btnEasyVitals').addEventListener('click', async () => {
+  const el = $('#easyVitals'); el.textContent = 'Leyendo…';
+  try {
+    const m = await api.monitorSample(); const p = [];
+    if (m.gpu && m.gpu.tempC != null) p.push(`GPU: <b>${m.gpu.tempC}°</b> · ${m.gpu.util ?? '—'}% de uso`);
+    if (m.cpu) p.push(`CPU: <b>${m.cpu.load ?? '—'}%</b> de uso`);
+    if (m.ram && m.ram.totalGB) p.push(`RAM: <b>${m.ram.usedGB} / ${m.ram.totalGB} GB</b>`);
+    el.innerHTML = p.join('<br>') || 'No se pudo leer el estado.';
+  } catch (_) { el.textContent = 'No se pudo leer el estado.'; }
+});
 
 // ----------------------------- Auto-updater -----------------------------
 $('#btnCheckUpdate').addEventListener('click', () => { $('#updateStatus').textContent = 'Comprobando…'; api.checkUpdates(); });

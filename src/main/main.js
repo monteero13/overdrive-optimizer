@@ -200,6 +200,9 @@ ipcMain.handle('profiles:revertNow', async (_e, id) => {
   return { ok: true };
 });
 
+ipcMain.handle('suspend:do', async (_e, names) => suspend(names));
+ipcMain.handle('suspend:undo', async (_e, names) => resume(names));
+
 // ------------------------- Benchmark -------------------------
 ipcMain.handle('bench:run', async () => benchmark.run());
 

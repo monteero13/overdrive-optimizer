@@ -37,6 +37,8 @@ contextBridge.exposeInMainWorld('overdrive', {
   steamGames: () => ipcRenderer.invoke('games:steam'),
   runningProcs: () => ipcRenderer.invoke('games:running'),
   suspendCandidates: () => ipcRenderer.invoke('games:suspendCandidates'),
+  suspendProcs: (names) => ipcRenderer.invoke('suspend:do', names),
+  resumeProcs: (names) => ipcRenderer.invoke('suspend:undo', names),
   onProfileEvent: (cb) => {
     const handler = (_e, data) => cb(data);
     ipcRenderer.on('profile:event', handler);

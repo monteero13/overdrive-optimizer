@@ -40,6 +40,11 @@ h1, h2, h3 { font-family: var(--display); font-weight: 600; letter-spacing: -0.0
 .brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 22px; }
 .brand-mark { font-size: 20px; color: var(--amber); text-shadow: 0 0 14px rgba(255, 166, 61, 0.5); }
 .brand-text { font-family: var(--display); font-weight: 700; letter-spacing: 3px; font-size: 15px; }
+/* Selector de modo */
+.mode-switch { display: flex; gap: 3px; background: rgba(255, 255, 255, 0.04); border: 1px solid var(--edge); border-radius: 10px; padding: 3px; margin: 0 6px 18px; }
+.ms-btn { flex: 1; background: none; border: none; color: var(--muted); font-family: var(--display); font-size: 12.5px; font-weight: 600; padding: 7px 8px; border-radius: 8px; cursor: pointer; transition: 0.15s; }
+.ms-btn.is-on { background: var(--panel-2); color: var(--text); box-shadow: 0 1px 6px rgba(0, 0, 0, 0.3); }
+
 .nav { display: flex; flex-direction: column; gap: 4px; }
 .nav-item {
   display: flex; align-items: center; gap: 11px;
@@ -198,6 +203,32 @@ h1, h2, h3 { font-family: var(--display); font-weight: 600; letter-spacing: -0.0
 .brow .bv { font-family: var(--mono); font-size: 18px; font-weight: 700; margin-top: 6px; display: flex; align-items: baseline; gap: 10px; }
 .brow .bd { font-family: var(--mono); font-size: 12.5px; }
 
+/* ---------------- Vista Fácil ---------------- */
+.easy { max-width: 860px; margin: 0 auto; }
+.easy-hero { text-align: center; padding: 30px 20px 10px; }
+.easy-hero h1 { font-size: 30px; margin: 0 0 8px; }
+.easy-sub { color: var(--muted); font-size: 14.5px; margin: 0 auto 26px; max-width: 46ch; }
+.orb { width: 108px; height: 108px; margin: 10px auto 24px; border-radius: 50%; display: grid; place-items: center; font-size: 42px; color: #221405;
+  background: radial-gradient(circle at 35% 30%, #ffd08a, var(--amber) 45%, var(--amber-deep)); box-shadow: 0 0 60px rgba(255, 138, 31, 0.4), inset 0 0 30px rgba(255, 255, 255, 0.25);
+  animation: breathe 3.5s ease-in-out infinite; }
+.orb.busy { animation: spin 1s linear infinite; }
+.orb.done { background: radial-gradient(circle at 35% 30%, #a7f0c6, var(--gain) 45%, #37a76a); box-shadow: 0 0 60px rgba(95, 211, 138, 0.4); }
+@keyframes breathe { 0%, 100% { transform: scale(1); } 50% { transform: scale(1.05); } }
+.btn-big { font-size: 17px; padding: 15px 38px; border-radius: 13px; }
+.easy-status { margin: 18px auto 10px; font-size: 14px; color: var(--text); min-height: 1.2em; max-width: 50ch; }
+.easy-status .gain { color: var(--gain); font-family: var(--mono); font-weight: 700; }
+
+.easy-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 26px; }
+.easy-card { display: flex; flex-direction: column; gap: 12px; }
+.ec-top { display: flex; align-items: center; gap: 10px; }
+.ec-top h3 { margin: 0; font-size: 16px; }
+.ec-ic { font-size: 20px; }
+.easy-card .muted { flex: 1; line-height: 1.45; }
+.easy-card .btn { align-self: flex-start; }
+.ec-freed { font-family: var(--mono); font-size: 14px; color: var(--cyan); background: rgba(88, 224, 255, 0.08); border: 1px solid rgba(88, 224, 255, 0.2); border-radius: 10px; padding: 10px 13px; }
+.ec-vitals { font-family: var(--mono); font-size: 13.5px; color: var(--muted); line-height: 1.7; }
+.ec-vitals b { color: var(--text); }
+
 /* Overlay */
 .overlay { position: fixed; inset: 0; z-index: 40; display: grid; place-items: center; background: rgba(8, 9, 13, 0.74); backdrop-filter: blur(6px); }
 .overlay-card { text-align: center; padding: 34px 44px; }
@@ -241,4 +272,5 @@ a { color: var(--cyan); }
   .update-progress, .ver { display: none; }
   .bench { height: auto; padding: 20px 16px 50px; }
   .levels { grid-template-columns: 1fr; }
+  .easy-cards { grid-template-columns: 1fr; }
 }

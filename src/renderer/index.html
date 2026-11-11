@@ -17,6 +17,10 @@
           <span class="brand-mark">◇</span>
           <span class="brand-text">OVERDRIVE</span>
         </div>
+        <div class="mode-switch" id="modeSwitch">
+          <button class="ms-btn is-on" data-mode="easy">Fácil</button>
+          <button class="ms-btn" data-mode="expert">Experto</button>
+        </div>
         <nav class="nav" id="nav">
           <button class="nav-item is-active" data-tab="analisis"><span class="ni-dot"></span>Análisis</button>
           <button class="nav-item" data-tab="perfiles"><span class="ni-dot"></span>Perfiles</button>
@@ -44,6 +48,33 @@
           <span class="ab-bolt">⚡</span>
           <span id="activeBannerText">Perfil activo</span>
         </div>
+
+        <!-- ============ VISTA FÁCIL ============ -->
+        <section id="easyView" class="easy">
+          <div class="easy-hero">
+            <div class="orb" id="easyOrb"><span>◇</span></div>
+            <h1>Optimiza tu PC para jugar</h1>
+            <p class="easy-sub">Un solo clic ajusta tu equipo para ganar rendimiento. Todo es reversible.</p>
+            <button id="btnEasyOptimize" class="btn btn-amber btn-big">Optimizar mi PC</button>
+            <div id="easyStatus" class="easy-status"></div>
+            <button id="btnEasyUndo" class="btn btn-ghost" hidden>Deshacer optimización</button>
+          </div>
+
+          <div class="easy-cards">
+            <div class="card easy-card">
+              <div class="ec-top"><span class="ec-ic">🎮</span><h3>Modo Juego</h3></div>
+              <p class="muted">Pausa apps de fondo (Chrome, Discord…) para liberar memoria mientras juegas. Se reanudan al terminar.</p>
+              <div id="gameModeFreed" class="ec-freed" hidden></div>
+              <button id="btnGameMode" class="btn btn-cyan">Activar Modo Juego</button>
+            </div>
+            <div class="card easy-card">
+              <div class="ec-top"><span class="ec-ic">🌡️</span><h3>Estado del equipo</h3></div>
+              <p class="muted">Temperatura y uso en vivo, en lenguaje claro.</p>
+              <div id="easyVitals" class="ec-vitals">Pulsa para ver el estado.</div>
+              <button id="btnEasyVitals" class="btn btn-ghost">Ver estado</button>
+            </div>
+          </div>
+        </section>
 
         <!-- ============ ANÁLISIS ============ -->
         <section class="tab is-active" data-tab="analisis">
