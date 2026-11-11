@@ -49,6 +49,26 @@ npm install
 npm start
 ```
 
+## Empaquetar a .exe
+
+Con [electron-builder](https://www.electron.build):
+
+```bash
+npm run dist       # genera instalador NSIS + portable en dist/
+npm run dist:dir   # solo la carpeta descomprimida (dist/win-unpacked), para probar
+```
+
+Produce en `dist/`:
+- `Overdrive Setup <versión>.exe` — instalador (permite elegir carpeta, crea acceso directo).
+- `Overdrive-<versión>-portable.exe` — ejecutable portable (sin instalación).
+
+El icono se genera en `assets/icon.ico`. La app arranca como usuario normal y
+**pide elevación (UAC) solo al aplicar** cambios que requieren administrador.
+
+> Nota: no está firmado digitalmente, así que SmartScreen puede avisar la primera vez
+> ("Más información → Ejecutar de todas formas"). Para distribución pública haría falta
+> un certificado de firma de código.
+
 ## Estructura
 
 ```

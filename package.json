@@ -5,7 +5,48 @@
   "main": "src/main/main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "electron . --dev"
+    "dev": "electron . --dev",
+    "dist": "electron-builder",
+    "dist:dir": "electron-builder --dir"
+  },
+  "build": {
+    "appId": "com.albertomontero.overdrive",
+    "productName": "Overdrive",
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "win": {
+      "icon": "assets/icon.ico",
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Overdrive"
+    },
+    "portable": {
+      "artifactName": "Overdrive-${version}-portable.exe"
+    }
   },
   "keywords": [
     "gaming",
@@ -17,6 +58,7 @@
   "author": "Alberto Montero",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^33.2.0"
+    "electron": "^33.2.0",
+    "electron-builder": "^26.18.0"
   }
 }
