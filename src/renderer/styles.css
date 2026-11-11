@@ -16,6 +16,11 @@
 
 * { box-sizing: border-box; }
 
+/* El atributo [hidden] DEBE ocultar aunque el elemento tenga display:grid/flex.
+   Sin esto, reglas como .overlay{display:grid} anulan [hidden] y el overlay
+   "Aplicando…" (y el spinner) se muestran siempre al abrir la app. */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   height: 100%;
