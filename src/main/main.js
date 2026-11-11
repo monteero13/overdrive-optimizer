@@ -45,13 +45,20 @@ ipcMain.handle('system:analyze', async () => {
 });
 
 // Devuelve los tweaks del nivel con su estado actual (on/off/unknown).
-ipcMain.handle('tweaks:list', async (_e, { level, hasSSD }) => {
-  const list = tweaksForLevel(level).filter((t) => !(t.ssdOnly && !hasSSD));
+ipcMain.handle('tweaks:list', async (_e, { level, caps }) => {
+  const hasSSD = caps && caps.hasSSD;
+  const vendors = (caps && caps.gpuVendors) || [];
+  const list = tweaksForLevel(level).filter((t) => {
+    if (t.ssdOnly && !hasSSD) return false;
+    if (t.nvidiaOnly && !vendors.includes('nvidia')) return false;
+    if (t.amdOnly && !vendors.includes('amd')) return false;
+    return true;
+  });
   const withState = await Promise.all(
     list.map(async (t) => {
       let state = 'unknown';
       try {
-        const out = (await psRun(t.check)).trim();
+        const out = (await psRun(t.check, { timeout: t.timeout || 60000 })).trim();
         if (out === 'on' || out === 'off') state = out;
       } catch (_) {
         state = 'unknown';
@@ -65,6 +72,8 @@ ipcMain.handle('tweaks:list', async (_e, { level, hasSSD }) => {
         needsAdmin: !!t.needsAdmin,
         needsReboot: !!t.needsReboot,
         irreversible: !!t.irreversible,
+        isInstall: !!t.isInstall,
+        informational: !!t.informational,
         state,
       };
     })
@@ -97,7 +106,7 @@ ipcMain.handle('tweaks:apply', async (e, { ids }) => {
     if (!t) continue;
     e.sender.send('tweaks:progress', { id: t.id, title: t.title, index: i, total: ids.length });
     try {
-      const out = (await psRun(t.apply)).trim();
+      const out = (await psRun(t.apply, { timeout: t.timeout || 120000 })).trim();
       results.push({ id: t.id, ok: true, needsReboot: !!t.needsReboot, out });
     } catch (err) {
       results.push({ id: t.id, ok: false, message: err.message });
@@ -114,7 +123,7 @@ ipcMain.handle('tweaks:revert', async (e, { ids }) => {
     const t = getTweak(id);
     if (!t || t.irreversible) continue;
     try {
-      const out = (await psRun(t.revert)).trim();
+      const out = (await psRun(t.revert, { timeout: t.timeout || 120000 })).trim();
       results.push({ id, ok: true, out });
     } catch (err) {
       results.push({ id, ok: false, message: err.message });

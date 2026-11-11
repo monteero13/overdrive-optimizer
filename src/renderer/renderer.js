@@ -4,11 +4,24 @@ const api = window.overdrive;
 const state = {
   analysis: null,
   hasSSD: false,
+  gpuVendors: [],
   level: 'media',
   tweaks: [],
   selected: new Set(),
   applied: [],
 };
+
+// Deduce los fabricantes de GPU presentes (nvidia / amd / intel).
+function detectVendors(gpus) {
+  const set = new Set();
+  for (const g of gpus || []) {
+    const n = (g.name || '').toLowerCase();
+    if (n.includes('nvidia') || n.includes('geforce')) set.add('nvidia');
+    if (n.includes('amd') || n.includes('radeon')) set.add('amd');
+    if (n.includes('intel')) set.add('intel');
+  }
+  return [...set];
+}
 
 const $ = (sel) => document.querySelector(sel);
 
@@ -41,6 +54,7 @@ async function runScan() {
     const data = await api.analyze();
     state.analysis = data;
     state.hasSSD = (data.disks || []).some((d) => /ssd/i.test(d.media || ''));
+    state.gpuVendors = detectVendors(data.gpu);
     renderSpecs(data);
     renderDrivers(data.driversOutdated || []);
     if (!data.admin) $('#adminBadge').hidden = false;
@@ -137,10 +151,12 @@ $('#levelSelector').addEventListener('click', (e) => {
 // ----------------------------- Plan -----------------------------
 async function loadTweaks() {
   try {
-    const list = await api.listTweaks(state.level, state.hasSSD);
+    const list = await api.listTweaks(state.level, { hasSSD: state.hasSSD, gpuVendors: state.gpuVendors });
     state.tweaks = list;
-    // Por defecto seleccionamos los que estan 'off' (aun no aplicados).
-    state.selected = new Set(list.filter((t) => t.state !== 'on').map((t) => t.id));
+    // Por defecto seleccionamos los que estan 'off' y no son instalaciones/informativos.
+    state.selected = new Set(
+      list.filter((t) => t.state !== 'on' && !t.isInstall && !t.informational).map((t) => t.id)
+    );
     renderPlan();
   } catch (err) {
     toast('No se pudo cargar el plan: ' + err.message, true);
@@ -151,9 +167,12 @@ function renderPlan() {
   const cont = $('#planList');
   cont.innerHTML = state.tweaks.map((t) => {
     const sel = state.selected.has(t.id) ? 'sel' : '';
+    const onLabel = t.isInstall ? 'instalado' : 'ya activo';
     const tags = [
       `<span class="tag risk-${t.risk}">${t.risk === 'low' ? 'riesgo bajo' : t.risk === 'medium' ? 'riesgo medio' : 'riesgo alto'}</span>`,
-      t.state === 'on' ? '<span class="tag state-on">ya activo</span>' : '',
+      t.isInstall ? '<span class="tag install">instalacion</span>' : '',
+      t.informational ? '<span class="tag install">abre app</span>' : '',
+      t.state === 'on' ? `<span class="tag state-on">${onLabel}</span>` : '',
       t.needsAdmin ? '<span class="tag admin">admin</span>' : '',
       t.needsReboot ? '<span class="tag reboot">reinicio</span>' : '',
     ].filter(Boolean).join(' ');

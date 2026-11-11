@@ -216,6 +216,7 @@ html, body {
 .tag.state-on { background: rgba(70,214,160,0.12); color: var(--ok); }
 .tag.admin { background: rgba(255,181,71,0.12); color: var(--warn); }
 .tag.reboot { background: rgba(108,123,255,0.14); color: var(--accent); }
+.tag.install { background: rgba(55,226,213,0.14); color: var(--accent-2); }
 
 /* Resultados */
 .result-list { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
