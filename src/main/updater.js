@@ -2,7 +2,7 @@
 // Auto-actualización con electron-updater (proveedor: GitHub Releases).
 // Solo funciona en la app empaquetada; en desarrollo se informa y no hace nada.
 
-const { app } = require('electron');
+const { app, dialog } = require('electron');
 const { autoUpdater } = require('electron-updater');
 
 let win = null;
@@ -22,7 +22,22 @@ function initUpdater(window) {
   autoUpdater.on('update-available', (info) => send('available', { version: info.version }));
   autoUpdater.on('update-not-available', () => send('none'));
   autoUpdater.on('download-progress', (p) => send('downloading', { percent: Math.round(p.percent) }));
-  autoUpdater.on('update-downloaded', (info) => send('downloaded', { version: info.version }));
+  autoUpdater.on('update-downloaded', (info) => {
+    send('downloaded', { version: info.version });
+    // Aviso nativo claro (mas visible que el panel inferior).
+    dialog
+      .showMessageBox(win, {
+        type: 'info',
+        buttons: ['Reiniciar e instalar', 'Más tarde'],
+        defaultId: 0,
+        cancelId: 1,
+        title: 'Actualización disponible',
+        message: `Overdrive ${info.version} está listo para instalar`,
+        detail: 'Se aplicará al reiniciar la aplicación.',
+      })
+      .then((r) => { if (r.response === 0) autoUpdater.quitAndInstall(); })
+      .catch(() => {});
+  });
   autoUpdater.on('error', (e) => send('error', { message: e == null ? 'desconocido' : (e.message || String(e)) }));
 }
 

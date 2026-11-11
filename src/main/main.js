@@ -95,10 +95,11 @@ ipcMain.handle('tweaks:list', async (_e, { level, caps }) => {
 
 // Crea un punto de restauracion del sistema. Requiere admin y Restauracion activada.
 ipcMain.handle('system:restorePoint', async () => {
+  // No intentamos Enable-ComputerRestore (es el paso lento que bloqueaba).
+  // Solo creamos el checkpoint: si Restaurar Sistema esta desactivado,
+  // Checkpoint-Computer falla rapido y seguimos sin punto de restauracion.
   const script = `
     try {
-      Enable-ComputerRestore -Drive "$env:SystemDrive\\" -ErrorAction SilentlyContinue
-      # Saltar el limite de 1 punto cada 24h para esta operacion puntual.
       New-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\SystemRestore' -Name 'SystemRestorePointCreationFrequency' -Value 0 -PropertyType DWord -Force | Out-Null
       Checkpoint-Computer -Description 'Overdrive Optimizer' -RestorePointType 'MODIFY_SETTINGS' -ErrorAction Stop
       'ok'
@@ -107,12 +108,12 @@ ipcMain.handle('system:restorePoint', async () => {
     }`;
   let out;
   try {
-    out = (await psRun(script, { timeout: 75000 })).trim();
+    out = (await psRun(script, { timeout: 60000 })).trim();
   } catch (e) {
-    return { ok: false, message: 'tardó demasiado o Restaurar Sistema está desactivado' };
+    return { ok: false, disabled: true, message: 'Restaurar Sistema está desactivado o tardó demasiado' };
   }
   if (out.startsWith('ok')) return { ok: true };
-  return { ok: false, message: out.replace(/^error:\s*/, '') };
+  return { ok: false, disabled: true, message: out.replace(/^error:\s*/, '') };
 });
 
 // Aplica una lista de tweaks (por id), emitiendo progreso.

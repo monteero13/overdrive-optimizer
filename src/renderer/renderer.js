@@ -221,17 +221,9 @@ function updateApplyBtn() {
 // ----------------------------- Aplicar -----------------------------
 $('#btnApply').addEventListener('click', applyPlan);
 
-let applyAbort = false;
-$('#btnCancelApply').addEventListener('click', () => {
-  applyAbort = true;
-  $('#overlay').hidden = true;
-  toast('Cancelado. Los cambios ya iniciados pueden completarse en segundo plano.');
-});
-
 async function applyPlan() {
   const ids = [...state.selected];
   if (!ids.length) return;
-  applyAbort = false;
 
   // Aviso si hay tweaks que requieren admin y no lo somos.
   const needsAdmin = state.tweaks.some((t) => ids.includes(t.id) && t.needsAdmin);
@@ -246,16 +238,20 @@ async function applyPlan() {
   overlay.hidden = false;
   bar.style.width = '0';
 
-  // Punto de restauracion
+  // Punto de restauracion: puede tardar; mostramos cronómetro para que se vea vivo.
   if ($('#chkRestore').checked) {
-    $('#overlayText').textContent = 'Creando punto de restauración… (hasta ~1 min · puedes Cancelar)';
     bar.classList.add('indet');
+    let secs = 0;
+    const fmt = () => `Creando punto de restauración… ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+    $('#overlayText').textContent = fmt();
+    $('#overlayNote').textContent = 'Es normal que tarde hasta 1 min. La app está trabajando, no está colgada.';
+    const timer = setInterval(() => { secs++; $('#overlayText').textContent = fmt(); }, 1000);
     const rp = await api.restorePoint();
+    clearInterval(timer);
     bar.classList.remove('indet');
-    if (applyAbort) return;
+    $('#overlayNote').textContent = '';
     if (!rp.ok) {
-      toast('No se pudo crear el punto de restauración: ' + (rp.message || ''), true);
-      // Continuamos igualmente, pero avisado.
+      toast('Se aplicará sin punto de restauración (' + (rp.message || 'Restaurar Sistema desactivado') + ').', true);
     }
   }
 
@@ -263,7 +259,8 @@ async function applyPlan() {
     if (p.done) { bar.classList.remove('indet'); bar.style.width = '100%'; return; }
     const long = !!p.isInstall;
     const step = `(${p.index + 1}/${p.total}) `;
-    $('#overlayText').textContent = (long ? 'Instalando ' : 'Aplicando ') + step + p.title + (long ? ' (puede tardar varios minutos)' : '');
+    $('#overlayText').textContent = (long ? 'Instalando ' : 'Aplicando ') + step + p.title;
+    $('#overlayNote').textContent = long ? 'La instalación puede tardar varios minutos.' : '';
     bar.classList.toggle('indet', long);
     if (!long) bar.style.width = `${Math.round((p.index / p.total) * 100)}%`;
   });
@@ -275,7 +272,6 @@ async function applyPlan() {
     toast('Error al aplicar: ' + err.message, true);
   }
   off();
-  if (applyAbort) return;
   overlay.hidden = true;
 
   state.applied = results.filter((r) => r.ok).map((r) => r.id);
