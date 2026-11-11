@@ -26,4 +26,22 @@ contextBridge.exposeInMainWorld('overdrive', {
     ipcRenderer.on('update:status', handler);
     return () => ipcRenderer.removeListener('update:status', handler);
   },
+  // Perfiles / juegos
+  listProfiles: () => ipcRenderer.invoke('profiles:list'),
+  saveProfile: (p) => ipcRenderer.invoke('profiles:save', p),
+  deleteProfile: (id) => ipcRenderer.invoke('profiles:delete', id),
+  exportProfile: (id) => ipcRenderer.invoke('profiles:export', id),
+  importProfile: (code) => ipcRenderer.invoke('profiles:import', code),
+  applyProfileNow: (id) => ipcRenderer.invoke('profiles:applyNow', id),
+  revertProfileNow: (id) => ipcRenderer.invoke('profiles:revertNow', id),
+  steamGames: () => ipcRenderer.invoke('games:steam'),
+  runningProcs: () => ipcRenderer.invoke('games:running'),
+  suspendCandidates: () => ipcRenderer.invoke('games:suspendCandidates'),
+  onProfileEvent: (cb) => {
+    const handler = (_e, data) => cb(data);
+    ipcRenderer.on('profile:event', handler);
+    return () => ipcRenderer.removeListener('profile:event', handler);
+  },
+  // Benchmark
+  runBenchmark: () => ipcRenderer.invoke('bench:run'),
 });

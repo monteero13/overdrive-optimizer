@@ -4,148 +4,166 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Overdrive</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <div class="aurora"></div>
-
-    <header class="topbar">
-      <div class="brand">
-        <span class="logo">◇</span>
-        <span class="brand-name">OVERDRIVE</span>
-        <span class="brand-sub">game optimizer</span>
-      </div>
-      <div id="adminBadge" class="badge badge-warn" hidden>
-        <span class="dot"></span> Sin permisos de administrador
-      </div>
-    </header>
-
-    <main class="container">
-      <!-- PASO 1: ANALISIS -->
-      <section class="panel" id="panel-scan">
-        <div class="panel-head">
-          <h2><span class="step">1</span> Analizar equipo</h2>
-          <button id="btnScan" class="btn btn-primary">
-            <span class="btn-label">Escanear hardware</span>
-          </button>
+    <div class="shell">
+      <!-- CONSOLA / NAVEGACIÓN -->
+      <aside class="console">
+        <div class="brand">
+          <span class="brand-mark">◇</span>
+          <span class="brand-text">OVERDRIVE</span>
         </div>
-        <div id="scanHint" class="hint">Pulsa escanear para inventariar CPU, GPU, RAM, disco y drivers.</div>
-
-        <div id="scanning" class="scanning" hidden>
-          <div class="radar"></div>
-          <p>Analizando sistema…</p>
-        </div>
-
-        <div id="specs" class="specs-grid" hidden></div>
-
-        <div id="driversBox" class="drivers-box" hidden>
-          <h3>Drivers que conviene revisar</h3>
-          <div id="driversList" class="drivers-list"></div>
-        </div>
-      </section>
-
-      <!-- PASO 2: NIVEL DE AGRESIVIDAD -->
-      <section class="panel" id="panel-level" hidden>
-        <div class="panel-head">
-          <h2><span class="step">2</span> Nivel de optimizacion</h2>
-        </div>
-        <div class="level-selector" id="levelSelector">
-          <button class="level" data-level="basica">
-            <span class="level-name">Basica</span>
-            <span class="level-desc">Segura y reversible. Ajustes recomendados sin riesgo.</span>
-          </button>
-          <button class="level is-active" data-level="media">
-            <span class="level-name">Media</span>
-            <span class="level-desc">Equilibrio. Desactiva procesos y efectos que restan FPS.</span>
-          </button>
-          <button class="level" data-level="agresiva">
-            <span class="level-name">Agresiva</span>
-            <span class="level-desc">Maximo rendimiento. Cambios avanzados de GPU, red y servicios.</span>
-          </button>
-          <div class="level-glow" id="levelGlow"></div>
-        </div>
-      </section>
-
-      <!-- PASO 3: PLAN -->
-      <section class="panel" id="panel-plan" hidden>
-        <div class="panel-head">
-          <h2><span class="step">3</span> Plan de optimizacion</h2>
-          <div class="plan-actions">
-            <label class="switch">
-              <input type="checkbox" id="chkRestore" checked />
-              <span class="slider"></span>
-              <span class="switch-label">Crear punto de restauracion</span>
-            </label>
-            <button id="btnApply" class="btn btn-primary" disabled>Aplicar seleccionados</button>
+        <nav class="nav" id="nav">
+          <button class="nav-item is-active" data-tab="analisis"><span class="ni-dot"></span>Análisis</button>
+          <button class="nav-item" data-tab="perfiles"><span class="ni-dot"></span>Perfiles</button>
+          <button class="nav-item" data-tab="monitor"><span class="ni-dot"></span>Monitor</button>
+          <button class="nav-item" data-tab="benchmark"><span class="ni-dot"></span>Benchmark</button>
+        </nav>
+        <div class="console-foot">
+          <div id="adminBadge" class="chip chip-warn" hidden><span class="pip"></span>Sin admin</div>
+          <div class="update-mini">
+            <span id="updateStatus">Actualizaciones</span>
+            <div class="update-mini-actions">
+              <button id="btnCheckUpdate" class="btn btn-ghost btn-sm">Comprobar</button>
+              <button id="btnInstallUpdate" class="btn btn-amber btn-sm" hidden>Instalar</button>
+            </div>
+            <div class="update-progress" id="updateProgress" hidden><div id="updateBar" class="progress-bar"></div></div>
           </div>
+          <div class="ver">v0.2.0</div>
         </div>
-        <div id="planList" class="plan-list"></div>
-      </section>
+      </aside>
 
-      <!-- RESULTADOS -->
-      <section class="panel" id="panel-result" hidden>
-        <div class="panel-head">
-          <h2><span class="step">✓</span> Resultado</h2>
-          <button id="btnRevert" class="btn btn-ghost">Revertir cambios</button>
+      <!-- BANCO DE TRABAJO -->
+      <main class="bench">
+        <!-- Banner de perfil activo (momento ámbar) -->
+        <div id="activeBanner" class="active-banner" hidden>
+          <span class="ab-bolt">⚡</span>
+          <span id="activeBannerText">Perfil activo</span>
         </div>
-        <div id="resultList" class="result-list"></div>
-      </section>
 
-      <!-- MONITOR EN TIEMPO REAL -->
-      <section class="panel" id="panel-monitor">
-        <div class="panel-head">
-          <h2><span class="step">◉</span> Monitor en tiempo real</h2>
-          <button id="btnMonitor" class="btn btn-primary">Iniciar monitor</button>
-        </div>
-        <div id="monitorGrid" class="monitor-grid" hidden>
-          <div class="mtile">
-            <div class="mtile-top"><span class="mlabel">GPU Temp</span><span class="mval" id="m-gpuTemp">—</span></div>
-            <div class="bar"><i id="b-gpuTemp"></i></div>
-            <canvas class="spark" id="s-gpuTemp" width="240" height="34"></canvas>
-          </div>
-          <div class="mtile">
-            <div class="mtile-top"><span class="mlabel">GPU Uso</span><span class="mval" id="m-gpuUtil">—</span></div>
-            <div class="bar"><i id="b-gpuUtil"></i></div>
-            <canvas class="spark" id="s-gpuUtil" width="240" height="34"></canvas>
-          </div>
-          <div class="mtile">
-            <div class="mtile-top"><span class="mlabel">GPU Potencia</span><span class="mval" id="m-gpuPower">—</span></div>
-            <div class="bar"><i id="b-gpuPower"></i></div>
-            <div class="msub" id="m-gpuExtra">reloj — · fan —</div>
-          </div>
-          <div class="mtile">
-            <div class="mtile-top"><span class="mlabel">CPU Uso</span><span class="mval" id="m-cpuLoad">—</span></div>
-            <div class="bar"><i id="b-cpuLoad"></i></div>
-            <canvas class="spark" id="s-cpuLoad" width="240" height="34"></canvas>
-          </div>
-          <div class="mtile">
-            <div class="mtile-top"><span class="mlabel">CPU Reloj</span><span class="mval" id="m-cpuClock">—</span></div>
-            <div class="msub" id="m-cpuExtra">temp ACPI —</div>
-          </div>
-          <div class="mtile">
-            <div class="mtile-top"><span class="mlabel">RAM</span><span class="mval" id="m-ram">—</span></div>
-            <div class="bar"><i id="b-ram"></i></div>
-            <canvas class="spark" id="s-ram" width="240" height="34"></canvas>
-          </div>
-        </div>
-        <div id="monitorHint" class="hint">Pulsa iniciar para ver temperaturas, uso y relojes actualizándose cada segundo.</div>
-      </section>
+        <!-- ============ ANÁLISIS ============ -->
+        <section class="tab is-active" data-tab="analisis">
+          <header class="tab-head">
+            <h1>Análisis del equipo</h1>
+            <p>Inventaría tu hardware y aplica optimizaciones reversibles por nivel.</p>
+          </header>
 
-      <!-- ACTUALIZACIONES -->
-      <section class="panel update-panel" id="panel-update">
-        <div class="update-row">
-          <div class="update-info">
-            <span class="update-icon">⟳</span>
-            <span id="updateStatus">Actualizaciones: pulsa comprobar.</span>
+          <div class="card" id="panel-scan">
+            <div class="card-row">
+              <div>
+                <h2 class="card-title">Escanear</h2>
+                <p class="muted" id="scanHint">Lee CPU, GPU, RAM, disco y drivers. Tarda unos segundos.</p>
+              </div>
+              <button id="btnScan" class="btn btn-amber"><span class="btn-label">Escanear hardware</span></button>
+            </div>
+            <div id="scanning" class="scanning" hidden>
+              <div class="radar"></div><span>Leyendo el sistema…</span>
+            </div>
           </div>
-          <div class="update-actions">
-            <button id="btnCheckUpdate" class="btn btn-ghost">Comprobar</button>
-            <button id="btnInstallUpdate" class="btn btn-primary" hidden>Reiniciar e instalar</button>
+
+          <div id="specs" class="specs" hidden></div>
+
+          <div id="driversBox" class="card" hidden>
+            <h2 class="card-title">Drivers a revisar</h2>
+            <div id="driversList" class="drivers"></div>
           </div>
-        </div>
-        <div class="update-progress" id="updateProgress" hidden><div id="updateBar" class="progress-bar"></div></div>
-      </section>
-    </main>
+
+          <div class="card" id="panel-level" hidden>
+            <h2 class="card-title">Nivel de optimización</h2>
+            <div class="levels" id="levelSelector">
+              <button class="level" data-level="basica"><b>Básica</b><span>Segura y reversible.</span></button>
+              <button class="level is-active" data-level="media"><b>Media</b><span>Equilibrio. Recupera FPS.</span></button>
+              <button class="level" data-level="agresiva"><b>Agresiva</b><span>Máximo rendimiento.</span></button>
+            </div>
+          </div>
+
+          <div class="card" id="panel-plan" hidden>
+            <div class="card-row">
+              <h2 class="card-title">Plan</h2>
+              <div class="plan-actions">
+                <label class="switch"><input type="checkbox" id="chkRestore" checked /><span class="slider"></span><span>Punto de restauración</span></label>
+                <button id="btnApply" class="btn btn-amber" disabled>Aplicar</button>
+              </div>
+            </div>
+            <div id="planList" class="plan"></div>
+          </div>
+
+          <div class="card" id="panel-result" hidden>
+            <div class="card-row">
+              <h2 class="card-title">Resultado</h2>
+              <button id="btnRevert" class="btn btn-ghost">Revertir</button>
+            </div>
+            <div id="resultList" class="results"></div>
+          </div>
+        </section>
+
+        <!-- ============ PERFILES ============ -->
+        <section class="tab" data-tab="perfiles">
+          <header class="tab-head">
+            <h1>Perfiles por juego</h1>
+            <p>Guarda tu configuración por juego. Se aplica al abrirlo y se revierte al cerrarlo.</p>
+          </header>
+
+          <div class="card">
+            <div class="card-row">
+              <h2 class="card-title">Tus perfiles</h2>
+              <div class="plan-actions">
+                <button id="btnImport" class="btn btn-ghost">Importar código</button>
+                <button id="btnNewProfile" class="btn btn-amber">Nuevo perfil</button>
+              </div>
+            </div>
+            <div id="profilesList" class="profiles"></div>
+          </div>
+        </section>
+
+        <!-- ============ MONITOR ============ -->
+        <section class="tab" data-tab="monitor">
+          <header class="tab-head">
+            <h1>Monitor en tiempo real</h1>
+            <p>Temperaturas, uso y relojes de GPU, CPU y RAM, segundo a segundo.</p>
+          </header>
+          <div class="card">
+            <div class="card-row">
+              <h2 class="card-title">Telemetría</h2>
+              <button id="btnMonitor" class="btn btn-cyan">Iniciar</button>
+            </div>
+            <div id="monitorGrid" class="monitor-grid" hidden>
+              <div class="mtile"><div class="mtile-top"><span class="mlabel">GPU Temp</span><span class="mval" id="m-gpuTemp">—</span></div><div class="meter"><i id="b-gpuTemp"></i></div><canvas class="spark" id="s-gpuTemp" width="240" height="34"></canvas></div>
+              <div class="mtile"><div class="mtile-top"><span class="mlabel">GPU Uso</span><span class="mval" id="m-gpuUtil">—</span></div><div class="meter"><i id="b-gpuUtil"></i></div><canvas class="spark" id="s-gpuUtil" width="240" height="34"></canvas></div>
+              <div class="mtile"><div class="mtile-top"><span class="mlabel">GPU Potencia</span><span class="mval" id="m-gpuPower">—</span></div><div class="meter"><i id="b-gpuPower"></i></div><div class="msub" id="m-gpuExtra">—</div></div>
+              <div class="mtile"><div class="mtile-top"><span class="mlabel">CPU Uso</span><span class="mval" id="m-cpuLoad">—</span></div><div class="meter"><i id="b-cpuLoad"></i></div><canvas class="spark" id="s-cpuLoad" width="240" height="34"></canvas></div>
+              <div class="mtile"><div class="mtile-top"><span class="mlabel">CPU Reloj</span><span class="mval" id="m-cpuClock">—</span></div><div class="msub" id="m-cpuExtra">—</div></div>
+              <div class="mtile"><div class="mtile-top"><span class="mlabel">RAM</span><span class="mval" id="m-ram">—</span></div><div class="meter"><i id="b-ram"></i></div><canvas class="spark" id="s-ram" width="240" height="34"></canvas></div>
+            </div>
+            <p id="monitorHint" class="muted">Pulsa iniciar para ver la telemetría en vivo.</p>
+          </div>
+        </section>
+
+        <!-- ============ BENCHMARK ============ -->
+        <section class="tab" data-tab="benchmark">
+          <header class="tab-head">
+            <h1>Benchmark Antes / Después</h1>
+            <p>Mide el rendimiento real y comprueba cuánto mejora tras optimizar. Sin promesas, datos.</p>
+          </header>
+          <div class="card">
+            <div class="card-row">
+              <h2 class="card-title">Medición</h2>
+              <div class="plan-actions">
+                <button id="btnBenchBefore" class="btn btn-ghost">Medir "antes"</button>
+                <button id="btnBenchAfter" class="btn btn-amber" disabled>Medir "después"</button>
+              </div>
+            </div>
+            <div id="benchRunning" class="scanning" hidden><div class="radar"></div><span>Midiendo rendimiento…</span></div>
+            <div id="benchResults" class="bench-out" hidden></div>
+            <p id="benchHint" class="muted">Mide "antes", aplica optimizaciones en Análisis, y vuelve a medir "después".</p>
+          </div>
+        </section>
+      </main>
+    </div>
 
     <!-- Overlay de progreso -->
     <div id="overlay" class="overlay" hidden>
@@ -157,8 +175,19 @@
       </div>
     </div>
 
-    <div id="toast" class="toast" hidden></div>
+    <!-- Modal de perfil -->
+    <div id="profileModal" class="modal" hidden>
+      <div class="modal-card">
+        <div class="modal-head"><h3 id="pmTitle">Nuevo perfil</h3><button id="pmClose" class="icon-btn">✕</button></div>
+        <div class="modal-body" id="pmBody"></div>
+        <div class="modal-foot">
+          <button id="pmCancel" class="btn btn-ghost">Cancelar</button>
+          <button id="pmSave" class="btn btn-amber">Guardar perfil</button>
+        </div>
+      </div>
+    </div>
 
+    <div id="toast" class="toast" hidden></div>
     <script src="renderer.js"></script>
   </body>
 </html>

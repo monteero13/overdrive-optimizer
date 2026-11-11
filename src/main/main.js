@@ -6,6 +6,10 @@ const { analyzeHardware, analyzeDrivers } = require('./system');
 const { tweaksForLevel, getTweak } = require('./tweaks');
 const { sampleMetrics } = require('./monitor');
 const { initUpdater, checkForUpdates, quitAndInstall } = require('./updater');
+const profiles = require('./profiles');
+const games = require('./games');
+const { suspend, resume } = require('./suspend');
+const benchmark = require('./benchmark');
 
 let mainWindow = null;
 
@@ -170,6 +174,35 @@ ipcMain.handle('app:openExternal', async (_e, url) => {
   return true;
 });
 
+// ------------------------- Perfiles / juegos -------------------------
+ipcMain.handle('profiles:list', async () => profiles.all());
+ipcMain.handle('profiles:save', async (_e, p) => profiles.upsert(p));
+ipcMain.handle('profiles:delete', async (_e, id) => { profiles.remove(id); return true; });
+ipcMain.handle('profiles:export', async (_e, id) => profiles.exportCode(id));
+ipcMain.handle('profiles:import', async (_e, code) => profiles.importCode(code));
+ipcMain.handle('games:steam', async () => games.steamGames());
+ipcMain.handle('games:running', async () => games.runningProcesses());
+ipcMain.handle('games:suspendCandidates', async () => games.suspendCandidates());
+
+// Aplicar / revertir un perfil manualmente (sin esperar al vigilante).
+ipcMain.handle('profiles:applyNow', async (_e, id) => {
+  const p = profiles.get(id);
+  if (!p) return { ok: false };
+  const r = await applyProfile(p);
+  activeProfiles.add(id);
+  return { ok: true, freedMB: r.freedMB };
+});
+ipcMain.handle('profiles:revertNow', async (_e, id) => {
+  const p = profiles.get(id);
+  if (!p) return { ok: false };
+  await revertProfile(p);
+  activeProfiles.delete(id);
+  return { ok: true };
+});
+
+// ------------------------- Benchmark -------------------------
+ipcMain.handle('bench:run', async () => benchmark.run());
+
 // Relanza la app con privilegios de administrador (UAC).
 ipcMain.handle('app:relaunchAdmin', async () => {
   const exe = process.execPath;
@@ -187,3 +220,79 @@ ipcMain.handle('app:relaunchAdmin', async () => {
     return { ok: false, message: err.message };
   }
 });
+
+// ------------------------- Perfiles: aplicar/revertir + vigilante -------------------------
+const activeProfiles = new Set();
+
+async function applyProfile(p) {
+  for (const id of p.tweaks || []) {
+    const t = getTweak(id);
+    if (t) { try { await psRun(t.apply, { timeout: t.timeout || 120000 }); } catch (_) {} }
+  }
+  if (p.gpuMax) {
+    const t = getTweak('nvidia-max-perf');
+    if (t) { try { await psRun(t.apply); } catch (_) {} }
+  }
+  let freedMB = 0;
+  if (p.suspend && p.suspend.length) {
+    const r = await suspend(p.suspend);
+    freedMB = r.freedMB || 0;
+  }
+  return { freedMB };
+}
+
+async function revertProfile(p) {
+  for (const id of p.tweaks || []) {
+    const t = getTweak(id);
+    if (t && !t.irreversible) { try { await psRun(t.revert, { timeout: t.timeout || 120000 }); } catch (_) {} }
+  }
+  if (p.gpuMax) {
+    const t = getTweak('nvidia-max-perf');
+    if (t) { try { await psRun(t.revert); } catch (_) {} }
+  }
+  if (p.suspend && p.suspend.length) await resume(p.suspend);
+}
+
+function notifyRenderer(channel, data) {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, data);
+}
+
+// Nombres de proceso en ejecución (sin extensión, en minúsculas).
+async function runningProcNames() {
+  try {
+    const out = (await psRun(`Get-Process | Select-Object -ExpandProperty ProcessName -Unique`, { timeout: 15000 })).trim();
+    return new Set(out.split(/\r?\n/).map((s) => s.trim().toLowerCase()).filter(Boolean));
+  } catch (_) {
+    return new Set();
+  }
+}
+
+function baseName(exe) {
+  return String(exe || '').toLowerCase().replace(/\.exe$/, '');
+}
+
+let watcherTimer = null;
+async function pollGames() {
+  const list = profiles.all().filter((p) => p.autoApply && p.exe);
+  if (!list.length) return;
+  const running = await runningProcNames();
+  for (const p of list) {
+    const isUp = running.has(baseName(p.exe));
+    if (isUp && !activeProfiles.has(p.id)) {
+      activeProfiles.add(p.id);
+      const r = await applyProfile(p);
+      notifyRenderer('profile:event', { type: 'applied', id: p.id, name: p.name, freedMB: r.freedMB });
+    } else if (!isUp && activeProfiles.has(p.id)) {
+      activeProfiles.delete(p.id);
+      await revertProfile(p);
+      notifyRenderer('profile:event', { type: 'reverted', id: p.id, name: p.name });
+    }
+  }
+}
+
+function startWatcher() {
+  if (watcherTimer) return;
+  watcherTimer = setInterval(() => { pollGames().catch(() => {}); }, 6000);
+}
+
+app.whenReady().then(startWatcher);
