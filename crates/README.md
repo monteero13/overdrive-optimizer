@@ -2,15 +2,49 @@
 
 | Crate | Qué es |
 |---|---|
-| `overdrive-core` | Lógica pura, sin Win32: perfilador (módulo A), tier, problemas estructurales, BIOS Coach, telemetría y clasificador (módulo B), motor de transacciones (módulo D) y política de seguridad (módulo F). Testeable con fakes (`testing::FakeSource`, `engine::fake::FakeSystem`) y trazas grabadas. |
-| `overdrive-win` | Implementación real para Windows 10/11. Es el único crate con `unsafe` (`src/sys.rs`, `src/telemetry.rs`, `src/system_ops.rs`). Incluye el binario `overdrive-probe`. |
+| `overdrive-core` | Lógica pura, sin Win32: perfilador (módulo A), tier, problemas estructurales, BIOS Coach, telemetría y clasificador (módulo B), catálogo (C), motor de transacciones (D), orquestador de sesión y protocolo A/B (E), política de seguridad (F) y Drift Guardian (I). Testeable con fakes (`testing::FakeSource`, `engine::fake::FakeSystem`) y trazas grabadas. |
+| `overdrive-win` | Implementación real para Windows 10/11. Es el único crate con `unsafe` (`src/sys.rs`, `src/telemetry.rs`, `src/system_ops.rs`, `src/processes.rs`). Incluye el binario `overdrive-probe`. |
 
 ```bash
-cargo test --workspace                          # 61 tests (perfil, muestreador, registro y procesos reales incluidos)
+cargo test --workspace                          # 80 tests (perfil, muestreador, registro, tareas y procesos reales incluidos)
 cargo run --release -p overdrive-win --bin overdrive-probe -- --stability 7
 cargo run -p overdrive-core --example gen_traces              # regenera la biblioteca de trazas
 cargo run -p overdrive-core --example inspect_trace -- <nombre>  # veredicto ventana a ventana
 ```
+
+## Fase 6: catálogo, protocolo A/B, orquestador y Drift Guardian
+
+### Piezas
+
+| Pieza | Dónde | Qué hace |
+|---|---|---|
+| Catálogo | `catalog/tweaks.toml` + `core::catalog` | 11 tweaks como **datos**: alcance, momento (antes del arranque / al arrancar), riesgo, evidencia, si es compatible con anti-cheat, cómo se mide y orden del experimento. Cada id tiene un constructor que **lee el estado actual** y devuelve las acciones exactas, o explica por qué no aplica o si ya estaba bien. Las cadenas compartidas (`DirectXUserGlobalSettings`, `UserGpuPreferences`) se fusionan sin pisar otras opciones. |
+| Primitivas nuevas | `core::engine`, `win::system_ops` | Tareas programadas (COM Task Scheduler) y lista de planes de energía (`PowerEnumerate`). |
+| Protocolo A/B | `core::experiment` | Línea base, después **un tweak cada vez** frente a la configuración anterior. Welch con IC del 99 %, ganancia mínima del 3 %, equivalencia de ±3 %, 3 a 8 partidas por configuración, alternando A y B cuando hay dudas. **Sin estado oculto**: todo se deduce de las sesiones y veredictos del journal. Las sesiones con otro contexto (driver, ajustes del juego, energía) no se comparan. |
+| Orquestador | `core::session` | `arm` → `on_game_start` → `on_game_exit` (lo revierte todo, mide, decide, informa y ofrece mantener) → `accept_persistent`. Si el usuario arranca el juego sin pulsar Optimizar, los tweaks de "antes del arranque" no se cuentan en la medición. |
+| Drift Guardian | `core::drift` | Revisa cada cambio persistente aceptado. Si una actualización lo deshizo, lo repara sola cuando es de riesgo bajo (si no, pregunta). Detecta regresiones de más del 10 % y apunta la causa probable: driver nuevo, ajustes del juego o fuente de energía. |
+| Procesos | `win::processes` | Lista con identidad (PID + hora de creación), sesión, primer plano, ventanas visibles y **audio activo** (WASAPI, reproducción y captura) en todos los dispositivos. |
+
+### Resultados
+
+- **Prueba de extremo a extremo** (`tests/session.rs`): un portátil con dos gráficas y un juego con anti-cheat de kernel. Los efectos reales de cada tweak están ocultos para el orquestador, y el juego rinde según lo que de verdad está aplicado en el sistema simulado, con ruido entre partidas. El orquestador descubre los 7 efectos: se queda con la GPU dedicada, la energía, Game DVR y la telemetría; veta el aislamiento de fondo (dañino); y descarta la prioridad IFEO y la optimización de ventana. Al final solo quedan los 3 cambios persistentes aceptados, y "dejar mi PC como estaba" lo devuelve todo al original.
+- **Robustez con 20 semillas de ruido:** **96,4 % de veredictos correctos**, **0 tweaks inútiles o dañinos conservados** y el dañino detectado las 20 veces. Los fallos son efectos reales pequeños (+5–6 %) marcados como "sin beneficio": el error prudente. Coste: mediana de 49 partidas para decidir los 7 tweaks. Las mejoras grandes se confirman en las primeras y quedan activas desde entonces.
+  - La primera versión del protocolo solo acertaba el 77 % y conservaba 2 tweaks inútiles. Fallaba por no alternar A y B (la base se quedaba en 2 partidas) y por los falsos positivos de mirar los datos tras cada partida. Este test lo destapó; con una sola semilla parecía perfecto.
+- **Drift:** una actualización de Windows que vuelve a activar Game DVR se detecta y se repara, y el reset global sigue dejando el sistema original.
+- **En el PC real:**
+  - Spotify estaba sonando desde un proceso y la política iba a bajar sus procesos hermanos. Ahora, si una app suena en cualquiera de sus procesos, no se toca ninguno.
+  - Las tareas de telemetría del catálogo no existen en ese Windows (ya las había quitado su dueño): el constructor las salta.
+
+### Criterio de terminado de la Fase 6
+
+- [x] Catálogo declarativo con los ítems 1–6 (y 6b), cada entrada con evidencia, riesgo, alcance y tests
+- [x] Orquestador de sesión, protocolo A/B, promoción a persistente e informes de sesión
+- [x] Lo que no aporta se revierte solo y se informa; lo que empeora queda vetado en esa máquina
+- [x] Una actualización simulada que deshace ajustes se detecta y se repara
+- [ ] **Pendiente:**
+  - El limitador de FPS (ítem 2) espera a los perfiles de driver de la Fase 7.
+  - HAGS necesita reiniciar: se ofrece a mano en modo Experto, y falta el flujo de medición "antes/después del reinicio".
+  - El servicio que conecta todo esto con la interfaz (IPC real) aún no existe.
 
 ## Fase 5: motor de transacciones y política de seguridad
 

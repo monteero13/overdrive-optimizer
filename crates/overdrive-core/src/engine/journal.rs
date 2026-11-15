@@ -423,6 +423,7 @@ impl Journal {
             .collect()
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn set_outcome(
         &self,
         tweak_id: &str,

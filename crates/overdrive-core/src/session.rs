@@ -1,14 +1,13 @@
 //! Module E — Session Orchestrator (goals.md §5.6).
 //!
 //! Lifecycle driven by the service:
-//! 1. `arm(game)`            — user pressed "Optimize": apply the *before-launch* tweaks of
-//!                             this session's configuration (GPU preference, IFEO…).
-//! 2. `on_game_start(...)`   — game process appeared: apply the *at-launch* tweaks
-//!                             (power plan, background isolation, update pause).
-//! 3. `on_game_exit(...)`    — revert everything of the session, compute metrics, record the
-//!                             session, let the A/B protocol decide, report and offer to keep
-//!                             proven persistent wins.
-//! 4. `accept_persistent()`  — the user said "keep it": apply as a persistent transaction.
+//! 1. `arm(game)`: the user pressed "Optimize". Apply the *before-launch* tweaks of this
+//!    session's configuration (GPU preference, IFEO…).
+//! 2. `on_game_start(...)`: the game process appeared. Apply the *at-launch* tweaks (power
+//!    plan, background isolation, update pause).
+//! 3. `on_game_exit(...)`: revert everything of the session, compute metrics, record the
+//!    session, let the A/B protocol decide, report and offer to keep proven persistent wins.
+//! 4. `accept_persistent()`: the user said "keep it". Apply as a persistent transaction.
 //!
 //! Which tweaks a session uses comes from `experiment::next` (stateless, journal-driven).
 
@@ -94,6 +93,11 @@ pub struct SessionReport {
     pub converged: bool,
 }
 
+/// Experiment candidates in order, plus the excluded tweaks and why.
+pub type Candidates = (Vec<String>, Vec<(String, Exclusion)>);
+/// Transaction applied (if anything) and actions the safety policy blocked (tweak, reason).
+type Applied = (Option<i64>, Vec<(String, String)>);
+
 pub struct Orchestrator<'a> {
     pub journal: &'a Journal,
     pub sys: &'a dyn SystemOps,
@@ -169,7 +173,7 @@ impl<'a> Orchestrator<'a> {
         &self,
         game: &GameTarget,
         hw: &HardwareProfile,
-    ) -> Result<(Vec<String>, Vec<(String, Exclusion)>), TxError> {
+    ) -> Result<Candidates, TxError> {
         let verdicts = self.verdicts(&game.id)?;
         let policy = SafetyPolicy::default();
         let ctx = self.ctx(game, hw, None, &policy);
@@ -326,6 +330,7 @@ impl<'a> Orchestrator<'a> {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn apply_timing(
         &self,
         game: &GameTarget,
@@ -336,7 +341,7 @@ impl<'a> Orchestrator<'a> {
         policy: &SafetyPolicy,
         phase: &str,
         tweak_set: &[String],
-    ) -> Result<(Option<i64>, Vec<(String, String)>), TxError> {
+    ) -> Result<Applied, TxError> {
         let ctx = self.ctx(game, hw, procs, policy);
         let mut planned = Vec::new();
         let mut blocked = Vec::new();
