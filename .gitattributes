@@ -1,0 +1,2 @@
+# Reference traces must stay byte-exact (no CRLF conversion).
+crates/overdrive-core/tests/traces/** -text

@@ -1,0 +1,90 @@
+[
+  {
+    "expected": "gpu_bound",
+    "format": "presentmon-2.x",
+    "name": "gpu_bound_60fps",
+    "note": "GPU busy ≈ frametime the whole session",
+    "origin": "synthetic",
+    "seed": 11
+  },
+  {
+    "expected": "cpu_bound",
+    "format": "presentmon-2.x",
+    "name": "cpu_bound_120fps",
+    "note": "GPU idles ~half of every frame",
+    "origin": "synthetic",
+    "seed": 12
+  },
+  {
+    "expected": "mixed",
+    "format": "presentmon-2.x",
+    "name": "mixed_boundary",
+    "note": "Ratio between the CPU and GPU thresholds",
+    "origin": "synthetic",
+    "seed": 13
+  },
+  {
+    "expected": "memory_bound",
+    "format": "presentmon-2.x",
+    "name": "memory_bound_8gb",
+    "note": "RAM 94 % and every stutter lines up with a hard-fault burst",
+    "origin": "synthetic",
+    "seed": 14
+  },
+  {
+    "expected": "cpu_bound",
+    "format": "presentmon-2.x",
+    "name": "vram_high_but_cpu_bound",
+    "note": "High memory use alone is NOT a bottleneck: stutters don't correlate",
+    "origin": "synthetic",
+    "seed": 15
+  },
+  {
+    "expected": "io_bound",
+    "format": "presentmon-2.x",
+    "name": "io_bound_hdd",
+    "note": "Stutters line up with disk-queue bursts (asset streaming from HDD)",
+    "origin": "synthetic",
+    "seed": 16
+  },
+  {
+    "expected": "thermal_or_power_limited",
+    "format": "presentmon-2.x",
+    "name": "thermal_laptop",
+    "note": "CPU perf limit drops to ~68 % after 12 s and stays there",
+    "origin": "synthetic",
+    "seed": 17
+  },
+  {
+    "expected": "thermal_or_power_limited",
+    "format": "presentmon-2.x",
+    "name": "battery_laptop",
+    "note": "Playing on battery",
+    "origin": "synthetic",
+    "seed": 18
+  },
+  {
+    "expected": "gpu_bound",
+    "format": "presentmon-2.x",
+    "name": "loading_menu_then_gpu",
+    "note": "Loading screen and menu must be excluded, not counted as stutter or CPU-bound",
+    "origin": "synthetic",
+    "seed": 19
+  },
+  {
+    "expected": "cpu_bound",
+    "format": "presentmon-2.x",
+    "name": "cpu_bound_with_gpu_blip",
+    "note": "A 5 s GPU-heavy scene must not flip the verdict (hysteresis)",
+    "origin": "synthetic",
+    "seed": 20
+  },
+  {
+    "expected": "unknown",
+    "format": "presentmon-1.x",
+    "name": "no_gpu_busy_v1",
+    "note": "Old PresentMon without GPU busy: say unknown, don't guess",
+    "origin": "synthetic",
+    "seed": 21
+  }
+]

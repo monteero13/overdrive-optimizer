@@ -8,6 +8,7 @@
 //!   GetLogicalProcessorInformationEx (P/E cores), registry (OS + gaming settings), Event Log.
 
 pub mod sys;
+pub mod telemetry;
 
 use std::collections::HashMap;
 use std::sync::mpsc;

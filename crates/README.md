@@ -2,13 +2,70 @@
 
 | Crate | Qué es |
 |---|---|
-| `overdrive-core` | Lógica pura, sin Win32: perfilador (módulo A), tier, problemas estructurales, BIOS Coach. Testeable con fakes (`testing::FakeSource`). |
-| `overdrive-win` | Implementación real para Windows 10/11. Es el único crate con `unsafe`, aislado en `src/sys.rs`. Incluye el binario `overdrive-probe`. |
+| `overdrive-core` | Lógica pura, sin Win32: perfilador (módulo A), tier, problemas estructurales, BIOS Coach, telemetría y clasificador (módulo B). Testeable con fakes (`testing::FakeSource`) y trazas grabadas. |
+| `overdrive-win` | Implementación real para Windows 10/11. Es el único crate con `unsafe` (`src/sys.rs`, `src/telemetry.rs`). Incluye el binario `overdrive-probe`. |
 
 ```bash
-cargo test --workspace                          # 20 tests (incluye uno que perfila esta máquina de verdad)
+cargo test --workspace                          # 41 tests (perfil y muestreador contra el hardware real incluidos)
 cargo run --release -p overdrive-win --bin overdrive-probe -- --stability 7
+cargo run -p overdrive-core --example gen_traces              # regenera la biblioteca de trazas
+cargo run -p overdrive-core --example inspect_trace -- <nombre>  # veredicto ventana a ventana
 ```
+
+## Fase 4: telemetría y clasificador de cuellos de botella
+
+### Piezas
+
+| Pieza | Dónde | Qué hace |
+|---|---|---|
+| Parser de PresentMon | `core::telemetry::trace` | Lee CSV de PresentMon 1.x (`MsBetweenPresents`, `MsGPUActive`) y 2.x (`FrameTime`, `GPUBusy`) por cabecera, también línea a línea para el streaming. Los `NA` pasan a `None` y los fotogramas de *frame generation* se descartan. |
+| Métricas | `core::telemetry::metrics` | FPS medios (fotogramas / tiempo), 1 % y 0,1 % low = 1000 / P99 (P99,9), p50/p95/p99, desviación y tirones (más de 2× la mediana móvil de 30 fotogramas **y** al menos 8 ms más lentos). |
+| Clasificador | `core::telemetry::classify` | Ventanas de 5 s → carga/menú/partida → reglas → histéresis → veredicto con confianza y evidencias. |
+| Biblioteca de trazas | `core/tests/traces/` | 11 escenarios en formato PresentMon con sus contadores de sistema y la etiqueta esperada (`manifest.json`). |
+| PresentMon | `win::telemetry::PresentMonSource` | Lanza PresentMon 2.x para un PID (ETW, sin inyección), lee su stdout en un hilo y entrega fotogramas sin bloquear. |
+| Muestreador | `win::telemetry::SystemSampler` | Contadores PDH a 1 Hz (commit de RAM, `Page Reads/sec`, cola de disco, `% Performance Limit`, VRAM dedicada) y estado de batería. |
+
+### Reglas del clasificador (umbrales configurables en `Thresholds`)
+
+1. **Carga:** grupo de 3 o más fotogramas de más de 250 ms en 3 s, o una congelación de más de 2 s, detectados a nivel de fotograma. Un tirón aislado **no** es una carga: sigue contando como tirón.
+2. **Menú:** GPU casi parada (ratio < 0,20) y fotogramas muy regulares (CV < 0,03).
+3. **Temperatura/energía:** batería o `% Performance Limit` < 85.
+4. **Memoria:** RAM o VRAM por encima del 90 % **y** al menos la mitad de los tirones coinciden con ráfagas de fallos de página. Tener la memoria alta por sí solo no es un cuello de botella.
+5. **Disco:** al menos la mitad de los tirones coinciden con picos de la cola de disco.
+6. **GPU Busy / frametime:** ≥ 0,90 → GPU; ≤ 0,75 → CPU; entre medias → mixto; sin GPU Busy → desconocido.
+7. **Histéresis:** la línea de tiempo solo cambia tras 3 ventanas seguidas que coinciden; la etiqueta inicial es la mayoría de las 3 primeras. Si ninguna etiqueta tiene mayoría, el veredicto es "mixto".
+
+### Resultados
+
+| Traza | Esperado | Obtenido |
+|---|---|---|
+| gpu_bound_60fps | GPU | GPU (100 %) |
+| cpu_bound_120fps | CPU | CPU (100 %) |
+| mixed_boundary | mixto | mixto (100 %) |
+| memory_bound_8gb | memoria | memoria (100 %) |
+| vram_high_but_cpu_bound | CPU | CPU (100 %) |
+| io_bound_hdd | disco | disco (100 %) |
+| thermal_laptop | temperatura | temperatura (67 %: los primeros 12 s aún no hay limitación) |
+| battery_laptop | temperatura/energía | temperatura/energía (100 %) |
+| loading_menu_then_gpu | GPU | GPU (100 %) |
+| cpu_bound_with_gpu_blip | CPU | CPU (100 %; la escena de GPU de 5 s no cambia el veredicto) |
+| no_gpu_busy_v1 | desconocido | desconocido (100 %) |
+
+**Consumo medido en la máquina real (Windows 10, i5-11400F):**
+- Muestreador: **0,061 % de un núcleo** a 2 Hz, el doble que en producción, medido en ciclos exactos de su propio hilo.
+- Coste único al empezar la sesión: unos 440 ms de CPU, por la carga del proveedor de contadores de GPU.
+- Parser: **0,9 µs por fotograma**, un 0,03 % de un núcleo a 300 FPS.
+
+### Criterio de terminado de la Fase 4
+
+- [x] Integración con PresentMon/ETW (spawn, streaming y parseo) probada con el mismo camino de stdout
+- [x] Métricas, clasificador con histéresis y exclusión de cargas y menús
+- [x] Biblioteca de trazas y tests: el clasificador acierta en **todas** las trazas
+- [x] Consumo de la telemetría dentro del presupuesto (§4.3) en lo medible aquí: muestreador y parser
+- [ ] **Pendiente:**
+  - Las trazas son **sintéticas**: reproducen la firma de cada cuello de botella, pero falta añadir capturas reales de partidas, sobre todo de los PCs de los amigos.
+  - PresentMon todavía no está empaquetado (se incluirá junto al servicio en `presentmon\PresentMon.exe`) y su consumo propio no se ha medido.
+  - La captura ETW real necesita permisos de administrador; el servicio, que corre como LocalSystem, los tendrá.
 
 `overdrive-probe` es **de solo lectura**: imprime en JSON el perfil, los problemas ordenados por impacto y los flujos del BIOS Coach.
 

@@ -12,6 +12,8 @@ pub mod memspeed;
 pub mod profile;
 pub mod profiler;
 pub mod source;
+pub mod synth;
+pub mod telemetry;
 pub mod testing;
 pub mod tier;
 
