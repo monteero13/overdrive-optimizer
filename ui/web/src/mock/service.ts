@@ -517,18 +517,26 @@ export class MockService implements ServerEndpoint {
   private startCoach(issueId: string) {
     const issue = this.state.issues.find((i) => i.id === issueId);
     if (!issue || issue.fixableBy.kind !== 'bios') throw new Fail({ code: 'NOT_FOUND', messageKey: 'err.not_found' });
-    const vendor = this.preset.hardware.boardVendor.value ?? 'generic';
+    // Same keys and params as overdrive-core::coach::flow_for (Rust).
+    const vendor = (this.preset.hardware.boardVendor.value ?? 'generic').toLowerCase();
+    const menuVendor = ['msi', 'asus', 'gigabyte', 'asrock'].includes(vendor) ? vendor : 'generic';
     const flowId = issue.fixableBy.flowId;
+    const p = issue.params ?? {};
+    const ram = flowId === 'ram_xmp';
+    const target = ram ? Number(p.rated) : (this.preset.hardware.ramGb.value ?? 8) >= 15 ? 2048 : 1024;
+    const steps = [2133, 2400, 2666, 2933, 3000, 3200, 3466, 3600];
+    const fallback = ram ? [...steps].reverse().find((s) => s < target && s > Number(p.configured)) : undefined;
+    const profile = vendor === 'asus' ? 'DOCP / EXPO' : vendor === 'msi' ? 'A-XMP / EXPO' : 'XMP / EXPO';
     this.state.coach = {
       flowId,
       state: 'started',
       watchUntil: null,
       steps: [
-        { kind: 'explain', key: `coach.${flowId}.explain`, params: issue.params },
+        { kind: 'explain', key: `coach.${flowId}.explain`, params: { ...p, target } },
         { kind: 'reboot', key: 'coach.reboot' },
-        { kind: 'instruction', key: `coach.vendor.${vendor.toLowerCase()}.enter` },
-        { kind: 'instruction', key: `coach.${flowId}.where`, params: { vendor } },
-        { kind: 'instruction', key: `coach.${flowId}.set`, params: issue.params },
+        { kind: 'instruction', key: `coach.vendor.${vendor}.enter` },
+        { kind: 'instruction', key: `coach.${flowId}.where.${menuVendor}`, params: { profile } },
+        { kind: 'instruction', key: `coach.${flowId}.set`, params: { profile, target, ...(fallback ? { fallback } : {}) } },
         { kind: 'instruction', key: 'coach.save_exit' },
       ],
     };

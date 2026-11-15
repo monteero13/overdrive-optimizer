@@ -1,0 +1,31 @@
+[package]
+name = "overdrive-win"
+description = "Win32 implementations of overdrive-core ports (the only crate with unsafe + system calls)."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+overdrive-core = { path = "../overdrive-core" }
+serde.workspace = true
+serde_json.workspace = true
+wmi = "0.18"
+
+[dependencies.windows]
+version = "0.62"
+features = [
+  "Win32_Foundation",
+  "Win32_Graphics_Dxgi",
+  "Win32_System_SystemInformation",
+  "Win32_System_Performance",
+  "Win32_System_Power",
+  "Win32_System_Registry",
+  "Win32_System_EventLog",
+  "Win32_Devices_DeviceAndDriverInstallation",
+  "Win32_Devices_Properties",
+]
+
+[[bin]]
+name = "overdrive-probe"
+path = "src/bin/probe.rs"

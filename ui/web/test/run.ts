@@ -231,7 +231,10 @@ test('i18n: every dynamic key family used by the engine exists', () => {
   for (const p of Object.values(PRESETS)) for (const i of p.issues) need.push(`issue.${i.id}.title`, `issue.${i.id}.body`);
   need.push('issue.on_battery.title', 'issue.on_battery.body', 'tw.bios_ram_xmp.title', 'tw.bios_uma_buffer.title');
   for (const v of ['msi', 'asus', 'lenovo', 'generic']) need.push(`coach.vendor.${v}.enter`);
-  for (const f of ['ram_xmp', 'uma_buffer']) for (const s of ['explain', 'where', 'set']) need.push(`coach.${f}.${s}`);
+  for (const f of ['ram_xmp', 'uma_buffer']) {
+    for (const s of ['explain', 'set']) need.push(`coach.${f}.${s}`);
+    for (const v of ['msi', 'asus', 'gigabyte', 'asrock', 'generic']) need.push(`coach.${f}.where.${v}`);
+  }
   const src = ['src/mock/service.ts', 'src/ui/views.ts', 'src/ui/overlays.ts', 'src/ui/report.ts', 'src/ui/app.ts']
     .map((f) => readFileSync(new URL(`../${f}`, import.meta.url), 'utf8'))
     .join('\n');
@@ -242,6 +245,32 @@ test('i18n: every dynamic key family used by the engine exists', () => {
   for (const k of protocol) need.splice(0, need.length, ...need.filter((x) => x !== k));
   const missing = [...new Set(need)].filter((k) => !(k in es));
   ok(!missing.length, `missing keys: ${missing.join(', ')}`);
+});
+
+test('i18n: every issue id and coach key emitted by the Rust core exists (es + en)', () => {
+  const rs = (f: string) => readFileSync(new URL(`../../../crates/overdrive-core/src/${f}`, import.meta.url), 'utf8');
+  const issues = rs('issues.rs');
+  const coach = rs('coach.rs');
+  const ids = new Set<string>();
+  for (const m of issues.matchAll(/issue\(\s*"([a-z_]+)"/g)) ids.add(m[1]);
+  for (const m of issues.matchAll(/\{\s*"([a-z_]+)"\s*\}/g)) ids.add(m[1]); // if laptop { "thermal_hint" } else { "cpu_throttling" }
+  ok(ids.size >= 15, `parsed only ${ids.size} issue ids from issues.rs`);
+  const need: string[] = [];
+  for (const id of ids) need.push(`issue.${id}.title`, `issue.${id}.body`);
+  need.push('issue.ram_below_rated.body.laptop');
+  for (const m of coach.matchAll(/"(coach\.[a-z_.]+)"/g)) need.push(m[1]);
+  const vendors = ['msi', 'asus', 'gigabyte', 'asrock', 'lenovo', 'hp', 'dell', 'acer', 'generic'];
+  const menuVendors = ['msi', 'asus', 'gigabyte', 'asrock', 'generic'];
+  ok(coach.includes('coach.vendor.{vk}.enter'), 'coach.rs vendor-enter template changed: update this test');
+  for (const v of vendors) need.push(`coach.vendor.${v}.enter`);
+  for (const flow of ['ram_xmp', 'uma_buffer']) {
+    ok(coach.includes(`coach.${flow}.where.{menu_vk}`), `coach.rs ${flow} where-template changed: update this test`);
+    for (const v of menuVendors) need.push(`coach.${flow}.where.${v}`);
+  }
+  for (const [name, dict] of [['es', es], ['en', en]] as const) {
+    const missing = [...new Set(need)].filter((k) => !(k in dict));
+    ok(!missing.length, `${name} missing: ${missing.join(', ')}`);
+  }
 });
 
 // ---------------------------------------------------------------- run
