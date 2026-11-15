@@ -1,0 +1,161 @@
+# Overdrive optimization catalog (goals.md §5.3).
+#
+# Each entry is DATA: what it is, when it applies, how risky it is and how sure we are it
+# helps. The exact system changes are produced by a builder in
+# crates/overdrive-core/src/catalog.rs (one per id), which reads the current state first
+# so it never overwrites more than it needs.
+#
+# scope:     session    = applied for the game session, reverted when the game closes
+#            persistent = tested per session first; kept permanently only if it proves
+#                         useful AND the user accepts
+# timing:    before_launch = must be in place before the game starts (IFEO, GPU preference)
+#            at_launch     = applied when the game process appears
+# measure:   frametime        = judged by the 1 % low (A/B, see experiment.rs)
+#            background_noise = judged by stutters per minute
+#            none             = protective, never claims a performance gain
+# evidence:  proven | version_dependent | disputed
+# order:     experiment order — highest expected impact first
+
+[[tweak]]
+id = "hybrid_gpu"
+scope = "persistent"
+timing = "before_launch"
+risk = "low"
+evidence = "proven"
+anticheat_safe = true
+measure = "frametime"
+requires_reboot = false
+persistent_candidate = true
+order = 10
+notes = "Laptops with two GPUs: Windows per-app GPU preference (Settings > Display > Graphics). The single biggest real-world fix on low-end laptops."
+
+[[tweak]]
+id = "frame_cap"
+scope = "session"
+timing = "before_launch"
+risk = "low"
+evidence = "proven"
+anticheat_safe = true
+measure = "frametime"
+requires_reboot = false
+persistent_candidate = true
+order = 20
+requires = ["driver_profiles"]
+notes = "Cap slightly below the sustainable 1 % low via NVAPI DRS / ADLX. Needs the driver-profile primitive (Phase 7)."
+
+[[tweak]]
+id = "power_session"
+scope = "session"
+timing = "at_launch"
+risk = "low"
+evidence = "proven"
+anticheat_safe = true
+measure = "frametime"
+requires_reboot = false
+persistent_candidate = false
+order = 30
+notes = "High performance power plan only while playing and only on AC power."
+
+[[tweak]]
+id = "gamedvr_off"
+scope = "persistent"
+timing = "before_launch"
+risk = "low"
+evidence = "proven"
+anticheat_safe = true
+measure = "frametime"
+requires_reboot = false
+persistent_candidate = true
+order = 40
+notes = "Xbox Game Bar background capture off (GameDVR_Enabled / AppCaptureEnabled)."
+
+[[tweak]]
+id = "background_isolation"
+scope = "session"
+timing = "at_launch"
+risk = "medium"
+evidence = "proven"
+anticheat_safe = true
+measure = "frametime"
+requires_reboot = false
+persistent_candidate = false
+order = 50
+notes = "EcoQoS + BelowNormal for known idle background apps, suspend known updaters. Never: audio, voice, launchers, anti-cheat, foreground, unknown processes (safety.rs)."
+
+[[tweak]]
+id = "game_priority"
+scope = "persistent"
+timing = "before_launch"
+risk = "low"
+evidence = "version_dependent"
+anticheat_safe = true
+measure = "frametime"
+requires_reboot = false
+persistent_candidate = true
+order = 60
+notes = "IFEO PerfOptions (CpuPriorityClass/IoPriority = High): raises priority without ever opening a handle to the game process."
+
+[[tweak]]
+id = "background_noise"
+scope = "persistent"
+timing = "before_launch"
+risk = "low"
+evidence = "proven"
+anticheat_safe = true
+measure = "background_noise"
+requires_reboot = false
+persistent_candidate = true
+order = 70
+notes = "DiagTrack to Manual + compatibility/CEIP telemetry tasks disabled. Curated list; never Windows Update, Store or Defender."
+
+[[tweak]]
+id = "game_mode"
+scope = "persistent"
+timing = "before_launch"
+risk = "low"
+evidence = "proven"
+anticheat_safe = true
+measure = "frametime"
+requires_reboot = false
+persistent_candidate = true
+order = 80
+notes = "Windows Game Mode on (only when the user had it off)."
+
+[[tweak]]
+id = "windowed_opt"
+scope = "persistent"
+timing = "before_launch"
+risk = "low"
+evidence = "version_dependent"
+anticheat_safe = true
+measure = "frametime"
+requires_reboot = false
+persistent_candidate = true
+order = 90
+notes = "Windows 11 'Optimizations for windowed games' (SwapEffectUpgradeEnable=1), merged into the existing DirectX settings string."
+
+[[tweak]]
+id = "hags"
+scope = "persistent"
+timing = "before_launch"
+risk = "medium"
+evidence = "version_dependent"
+anticheat_safe = true
+measure = "frametime"
+requires_reboot = true
+persistent_candidate = true
+order = 100
+notes = "Hardware-accelerated GPU scheduling. Needs a reboot, so it can't be A/B tested inside one session: offered manually in Expert mode and measured afterwards."
+
+[[tweak]]
+id = "pause_updates"
+scope = "session"
+timing = "at_launch"
+risk = "low"
+evidence = "proven"
+anticheat_safe = true
+measure = "none"
+requires_reboot = false
+persistent_candidate = false
+order = 200
+notes = "Windows Update active hours cover the session so it never restarts the PC mid-game. Protective: no FPS claim."

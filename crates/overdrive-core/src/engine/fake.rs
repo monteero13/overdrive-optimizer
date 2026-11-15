@@ -23,7 +23,10 @@ pub struct FakeState {
     pub reg_keys: BTreeSet<(String, String)>,
     pub services: BTreeMap<String, StartType>,
     pub power: String,
+    /// Power schemes that exist (empty = only the active one).
+    pub power_schemes: BTreeSet<String>,
     pub procs: BTreeMap<u32, FakeProc>,
+    pub tasks: BTreeMap<String, bool>,
 }
 
 impl FakeState {
@@ -206,6 +209,33 @@ impl SystemOps for FakeSystem {
     fn set_power_scheme(&self, guid: &str) -> SysResult<()> {
         if self.enter("power_write")? {
             self.state.borrow_mut().power = guid.to_ascii_lowercase();
+        }
+        Ok(())
+    }
+    fn power_schemes(&self) -> SysResult<Vec<String>> {
+        self.enter("power_read")?;
+        let st = self.state.borrow();
+        let mut v: BTreeSet<String> = st.power_schemes.clone();
+        v.insert(st.power.clone());
+        Ok(v.into_iter().collect())
+    }
+    fn task_enabled(&self, path: &str) -> SysResult<bool> {
+        self.enter("task_read")?;
+        self.state
+            .borrow()
+            .tasks
+            .get(path)
+            .copied()
+            .ok_or_else(|| SysError::NotFound(path.into()))
+    }
+    fn set_task_enabled(&self, path: &str, enabled: bool) -> SysResult<()> {
+        if self.enter("task_write")? {
+            let mut st = self.state.borrow_mut();
+            let t = st
+                .tasks
+                .get_mut(path)
+                .ok_or_else(|| SysError::NotFound(path.into()))?;
+            *t = enabled;
         }
         Ok(())
     }

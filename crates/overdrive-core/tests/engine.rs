@@ -746,7 +746,34 @@ fn background_policy_touches_only_known_safe_processes() {
     let acts = policy.background_actions(&cases.iter().map(|c| c.0.clone()).collect::<Vec<_>>());
     assert_eq!(
         acts.len(),
-        3,
-        "chrome (eco + prio) + GoogleUpdate (suspend) only: {acts:?}"
+        1,
+        "one chrome process plays audio, so NO chrome process is touched; only GoogleUpdate is suspended: {acts:?}"
     );
+}
+
+#[test]
+fn a_multi_process_app_playing_audio_is_left_alone_entirely() {
+    // Real case: Spotify plays from one process; its helper processes have no audio session.
+    let policy = SafetyPolicy::default();
+    let info = |pid: u32, img: &str, audio: bool| ProcInfo {
+        process: p(pid, img),
+        session_id: 1,
+        parent_pid: None,
+        is_foreground: false,
+        produces_audio: audio,
+        has_visible_window: false,
+    };
+    let procs = vec![
+        info(10, "Spotify.exe", true),
+        info(11, "Spotify.exe", false),
+        info(12, "Spotify.exe", false),
+        info(20, "chrome.exe", false),
+    ];
+    let acts = policy.background_actions(&procs);
+    assert!(
+        acts.iter()
+            .all(|a| a.process().is_none_or(|pr| pr.image != "Spotify.exe")),
+        "no Spotify process may be touched: {acts:?}"
+    );
+    assert_eq!(acts.len(), 2, "only chrome (eco + priority)");
 }

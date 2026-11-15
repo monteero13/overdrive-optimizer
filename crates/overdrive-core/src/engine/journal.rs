@@ -301,3 +301,172 @@ impl Journal {
             .collect()
     }
 }
+
+// ---------------------------------------------------------------- measured sessions & verdicts
+
+/// A measured session as stored in the journal (`sessions` table).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SessionRow {
+    pub session_id: i64,
+    pub game_id: String,
+    pub tweak_set: Vec<String>,
+    pub context: Value,
+    pub started_at: i64,
+    pub metrics: crate::telemetry::metrics::SessionMetrics,
+    pub bottleneck: Option<String>,
+    pub valid: bool,
+}
+
+/// A per-machine verdict (`tweak_outcomes` table).
+#[derive(Debug, Clone, PartialEq)]
+pub struct OutcomeRow {
+    pub tweak_id: String,
+    pub game_id: String,
+    pub verdict: String,
+    pub delta_pct: Option<f64>,
+    pub ci_low: Option<f64>,
+    pub ci_high: Option<f64>,
+    pub runs: i64,
+}
+
+impl Journal {
+    #[allow(clippy::too_many_arguments)]
+    pub fn record_session(
+        &self,
+        tx_id: Option<i64>,
+        game_id: &str,
+        tweak_set: &[String],
+        context: &Value,
+        m: &crate::telemetry::metrics::SessionMetrics,
+        bottleneck: Option<&str>,
+        valid: bool,
+    ) -> JResult<i64> {
+        let mut set = tweak_set.to_vec();
+        set.sort();
+        let set_json =
+            serde_json::to_string(&set).map_err(|e| JournalError::Corrupt(e.to_string()))?;
+        self.conn.execute(
+            "INSERT INTO sessions(tx_id, game_id, is_baseline, tweak_set, context_json, started_at, gameplay_secs,
+                                  avg_fps, low_1, low_01, p50_ms, p95_ms, p99_ms, stdev_ms, stutters, bottleneck, valid)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)",
+            params![
+                tx_id,
+                game_id,
+                set.is_empty() as i64,
+                set_json,
+                context.to_string(),
+                now_ms(),
+                m.gameplay_secs,
+                m.avg_fps,
+                m.low_1,
+                m.low_01,
+                m.p50_ms,
+                m.p95_ms,
+                m.p99_ms,
+                m.stdev_ms,
+                m.stutters,
+                bottleneck,
+                valid as i64
+            ],
+        )?;
+        Ok(self.conn.last_insert_rowid())
+    }
+
+    pub fn sessions(&self, game_id: &str) -> JResult<Vec<SessionRow>> {
+        let mut st = self.conn.prepare(
+            "SELECT session_id, game_id, tweak_set, context_json, started_at, gameplay_secs, avg_fps, low_1, low_01,
+                    p50_ms, p95_ms, p99_ms, stdev_ms, stutters, bottleneck, valid
+             FROM sessions WHERE game_id = ?1 ORDER BY session_id",
+        )?;
+        let rows = st
+            .query_map(params![game_id], |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    r.get::<_, String>(2)?,
+                    r.get::<_, String>(3)?,
+                    r.get::<_, i64>(4)?,
+                    crate::telemetry::metrics::SessionMetrics {
+                        frames: 0,
+                        gameplay_secs: r.get(5)?,
+                        avg_fps: r.get::<_, Option<f64>>(6)?.unwrap_or(0.0),
+                        low_1: r.get::<_, Option<f64>>(7)?.unwrap_or(0.0),
+                        low_01: r.get::<_, Option<f64>>(8)?.unwrap_or(0.0),
+                        p50_ms: r.get::<_, Option<f64>>(9)?.unwrap_or(0.0),
+                        p95_ms: r.get::<_, Option<f64>>(10)?.unwrap_or(0.0),
+                        p99_ms: r.get::<_, Option<f64>>(11)?.unwrap_or(0.0),
+                        stdev_ms: r.get::<_, Option<f64>>(12)?.unwrap_or(0.0),
+                        stutters: r.get::<_, Option<i64>>(13)?.unwrap_or(0) as u32,
+                    },
+                    r.get::<_, Option<String>>(14)?,
+                    r.get::<_, i64>(15)? != 0,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        rows.into_iter()
+            .map(
+                |(session_id, game_id, set, ctx, started_at, metrics, bottleneck, valid)| {
+                    Ok(SessionRow {
+                        session_id,
+                        game_id,
+                        tweak_set: serde_json::from_str(&set)
+                            .map_err(|e| JournalError::Corrupt(e.to_string()))?,
+                        context: serde_json::from_str(&ctx)
+                            .map_err(|e| JournalError::Corrupt(e.to_string()))?,
+                        started_at,
+                        metrics,
+                        bottleneck,
+                        valid,
+                    })
+                },
+            )
+            .collect()
+    }
+
+    pub fn set_outcome(
+        &self,
+        tweak_id: &str,
+        game_id: &str,
+        verdict: &str,
+        delta: f64,
+        ci_low: f64,
+        ci_high: f64,
+        runs: i64,
+    ) -> JResult<()> {
+        self.conn.execute(
+            "INSERT INTO tweak_outcomes(tweak_id, game_id, verdict, delta_low1_pct, ci_low, ci_high, runs, decided_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+             ON CONFLICT(tweak_id, game_id) DO UPDATE SET verdict = excluded.verdict, delta_low1_pct = excluded.delta_low1_pct,
+                ci_low = excluded.ci_low, ci_high = excluded.ci_high, runs = excluded.runs, decided_at = excluded.decided_at",
+            params![tweak_id, game_id, verdict, delta, ci_low, ci_high, runs, now_ms()],
+        )?;
+        Ok(())
+    }
+
+    pub fn outcomes(&self, game_id: &str) -> JResult<Vec<OutcomeRow>> {
+        let mut st = self.conn.prepare("SELECT tweak_id, game_id, verdict, delta_low1_pct, ci_low, ci_high, runs FROM tweak_outcomes WHERE game_id = ?1 ORDER BY tweak_id")?;
+        let rows = st
+            .query_map(params![game_id], |r| {
+                Ok(OutcomeRow {
+                    tweak_id: r.get(0)?,
+                    game_id: r.get(1)?,
+                    verdict: r.get(2)?,
+                    delta_pct: r.get(3)?,
+                    ci_low: r.get(4)?,
+                    ci_high: r.get(5)?,
+                    runs: r.get(6)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(rows)
+    }
+
+    /// Transactions of one game in the given states (oldest first).
+    pub fn txs_for_game(&self, game_id: &str, states: &[TxState]) -> JResult<Vec<TxRow>> {
+        Ok(self
+            .txs_in(states)?
+            .into_iter()
+            .filter(|t| t.game_id.as_deref() == Some(game_id))
+            .collect())
+    }
+}

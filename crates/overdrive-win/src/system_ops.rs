@@ -422,6 +422,45 @@ impl SystemOps for WinSystem {
         }
     }
 
+    fn power_schemes(&self) -> SysResult<Vec<String>> {
+        use windows::Win32::System::Power::{PowerEnumerate, ACCESS_SCHEME};
+        let mut out = Vec::new();
+        for i in 0..64u32 {
+            let mut g = GUID::zeroed();
+            let mut size = std::mem::size_of::<GUID>() as u32;
+            let r = unsafe {
+                PowerEnumerate(
+                    None,
+                    None,
+                    None,
+                    ACCESS_SCHEME,
+                    i,
+                    Some(&mut g as *mut GUID as *mut u8),
+                    &mut size,
+                )
+            };
+            if r != ERROR_SUCCESS {
+                break; // ERROR_NO_MORE_ITEMS
+            }
+            out.push(format!("{g:?}").to_ascii_lowercase());
+        }
+        Ok(out)
+    }
+
+    fn task_enabled(&self, path: &str) -> SysResult<bool> {
+        tasks::with_task(path, |t| {
+            unsafe { t.Enabled() }
+                .map(|b| b.as_bool())
+                .map_err(|e| tasks::err(path, e))
+        })
+    }
+
+    fn set_task_enabled(&self, path: &str, enabled: bool) -> SysResult<()> {
+        tasks::with_task(path, |t| {
+            unsafe { t.SetEnabled(enabled.into()) }.map_err(|e| tasks::err(path, e))
+        })
+    }
+
     fn proc_alive(&self, p: &ProcRef) -> SysResult<bool> {
         match open(p, PROCESS_ACCESS_RIGHTS(0)) {
             Ok(h) => Ok(h.is_some()),
@@ -505,6 +544,50 @@ impl SystemOps for WinSystem {
         match unsafe { NtResumeProcess(h.0) } {
             0 => Ok(()),
             s => Err(SysError::Other(format!("NtResumeProcess 0x{s:08x}"))),
+        }
+    }
+}
+
+/// Task Scheduler over COM (ITaskService). COM is initialised per calling thread
+/// (multithreaded apartment); an already-initialised thread is fine.
+mod tasks {
+    use overdrive_core::engine::{SysError, SysResult};
+    use windows::core::BSTR;
+    use windows::Win32::System::Com::{
+        CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
+    };
+    use windows::Win32::System::TaskScheduler::{IRegisteredTask, ITaskService, TaskScheduler};
+    use windows::Win32::System::Variant::VARIANT;
+
+    pub fn err(path: &str, e: windows::core::Error) -> SysError {
+        match e.code().0 as u32 {
+            0x8007_0002 | 0x8007_0003 => SysError::NotFound(format!("task {path}")),
+            0x8007_0005 => SysError::AccessDenied(format!("task {path}")),
+            _ => SysError::Other(format!("task {path}: {e}")),
+        }
+    }
+
+    pub fn with_task<T>(
+        path: &str,
+        f: impl FnOnce(&IRegisteredTask) -> SysResult<T>,
+    ) -> SysResult<T> {
+        let (folder, name) = path
+            .rsplit_once('\\')
+            .ok_or_else(|| SysError::Other(format!("bad task path {path}")))?;
+        let folder = if folder.is_empty() { r"\" } else { folder };
+        unsafe {
+            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+            let svc: ITaskService = CoCreateInstance(&TaskScheduler, None, CLSCTX_INPROC_SERVER)
+                .map_err(|e| err(path, e))?;
+            let v = VARIANT::default();
+            svc.Connect(&v, &v, &v, &v).map_err(|e| err(path, e))?;
+            let folder = svc
+                .GetFolder(&BSTR::from(folder))
+                .map_err(|e| err(path, e))?;
+            let task = folder
+                .GetTask(&BSTR::from(name))
+                .map_err(|e| err(path, e))?;
+            f(&task)
         }
     }
 }

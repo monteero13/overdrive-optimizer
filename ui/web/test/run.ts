@@ -273,6 +273,23 @@ test('i18n: every issue id and coach key emitted by the Rust core exists (es + e
   }
 });
 
+test('i18n: every tweak in catalog/tweaks.toml and every exclusion reason has texts (es + en)', () => {
+  const root = (f: string) => readFileSync(new URL(`../../../${f}`, import.meta.url), 'utf8');
+  const ids = [...root('catalog/tweaks.toml').matchAll(/^id = "([a-z0-9_]+)"/gm)].map((m) => m[1]);
+  ok(ids.length >= 10, `parsed ${ids.length} catalog ids`);
+  const need: string[] = [];
+  for (const id of ids) for (const f of ['title', 'why', 'before', 'after']) need.push(`tw.${id}.${f}`);
+  // Exclusion reasons (session.rs) and builder reasons (catalog.rs NotApplicable).
+  for (const m of root('crates/overdrive-core/src/session.rs').matchAll(/^\s{4}([A-Z][A-Za-z]+)(?:\(String\))?,$/gm)) {
+    need.push(`exclusion.${m[1].replace(/([a-z])([A-Z])/g, '$1_$2').toLowerCase()}`);
+  }
+  for (const m of root('crates/overdrive-core/src/catalog.rs').matchAll(/NotApplicable\("([a-z0-9_]+)"\)/g)) need.push(`reason.${m[1]}`);
+  for (const [name, dict] of [['es', es], ['en', en]] as const) {
+    const missing = [...new Set(need)].filter((k) => !(k in dict));
+    ok(!missing.length, `${name} missing: ${missing.join(', ')}`);
+  }
+});
+
 // ---------------------------------------------------------------- run
 for (const [name, fn] of tests) {
   try {

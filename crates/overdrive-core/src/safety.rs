@@ -455,10 +455,32 @@ impl SafetyPolicy {
         NeverTouch(self::NeverTouch::Unknown)
     }
 
+    /// Multi-process apps (Spotify, browsers, Discord…) play audio from ONE process while
+    /// their siblings render or stream. If any process of an app produces audio, the whole
+    /// app counts as producing audio — lowering a sibling can still make the music stutter.
+    /// (Found on a real PC: Spotify's helpers were about to be lowered while it was playing.)
+    pub fn propagate_audio(procs: &[ProcInfo]) -> Vec<ProcInfo> {
+        let audio_images: HashSet<String> = procs
+            .iter()
+            .filter(|p| p.produces_audio)
+            .map(|p| p.process.image.to_ascii_lowercase())
+            .collect();
+        procs
+            .iter()
+            .map(|p| {
+                let mut p = p.clone();
+                if audio_images.contains(&p.process.image.to_ascii_lowercase()) {
+                    p.produces_audio = true;
+                }
+                p
+            })
+            .collect()
+    }
+
     /// Turn a process list into concrete actions (journaled by the engine).
     pub fn background_actions(&self, procs: &[ProcInfo]) -> Vec<Action> {
         let mut out = Vec::new();
-        for p in procs {
+        for p in &Self::propagate_audio(procs) {
             match self.background_decision(p) {
                 BackgroundDecision::LowerPriority => {
                     out.push(Action::ProcessEcoQos {

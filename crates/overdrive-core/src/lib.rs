@@ -6,13 +6,17 @@
 //! per field. Nothing here touches Win32: the real source lives in `overdrive-win`,
 //! fakes live in [`testing`].
 
+pub mod catalog;
 pub mod coach;
+pub mod drift;
 pub mod engine;
+pub mod experiment;
 pub mod issues;
 pub mod memspeed;
 pub mod profile;
 pub mod profiler;
 pub mod safety;
+pub mod session;
 pub mod source;
 pub mod synth;
 pub mod telemetry;

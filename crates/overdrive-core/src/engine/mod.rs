@@ -102,6 +102,11 @@ pub enum Action {
     ProcessSuspend {
         process: ProcRef,
     },
+    /// Enable/disable a Task Scheduler task, e.g. `\Microsoft\Windows\Application Experience\ProgramDataUpdater`.
+    ScheduledTask {
+        path: String,
+        enabled: bool,
+    },
 }
 
 impl Action {
@@ -111,6 +116,7 @@ impl Action {
             Action::RegistryValue { .. } => "registry_value",
             Action::ServiceStart { .. } => "service_start",
             Action::PowerScheme { .. } => "power_scheme",
+            Action::ScheduledTask { .. } => "scheduled_task",
             Action::ProcessPriority { .. } => "process_priority",
             Action::ProcessEcoQos { .. } => "process_eco_qos",
             Action::ProcessSuspend { .. } => "process_suspend",
@@ -158,6 +164,12 @@ pub trait SystemOps {
 
     fn active_power_scheme(&self) -> SysResult<String>;
     fn set_power_scheme(&self, guid: &str) -> SysResult<()>;
+    /// GUIDs (lowercase) of the power schemes that exist on this machine.
+    fn power_schemes(&self) -> SysResult<Vec<String>>;
+
+    /// `NotFound` if the task doesn't exist on this Windows build.
+    fn task_enabled(&self, path: &str) -> SysResult<bool>;
+    fn set_task_enabled(&self, path: &str, enabled: bool) -> SysResult<()>;
 
     /// `false` if the process exited (or the PID was reused).
     fn proc_alive(&self, p: &ProcRef) -> SysResult<bool>;

@@ -74,6 +74,7 @@ pub fn intended(a: &Action) -> Value {
         Action::ProcessPriority { class, .. } => json!({ "class": class }),
         Action::ProcessEcoQos { on, .. } => json!({ "on": on }),
         Action::ProcessSuspend { .. } => json!({ "suspended": true }),
+        Action::ScheduledTask { enabled, .. } => json!({ "enabled": enabled }),
     }
 }
 
@@ -101,6 +102,7 @@ pub fn capture(a: &Action, sys: &dyn SystemOps) -> SysResult<Value> {
         // There is no reliable "is suspended" query: we only ever suspend processes the
         // policy saw running in the foreground session, so the original state is "running".
         Action::ProcessSuspend { .. } => json!({ "suspended": false }),
+        Action::ScheduledTask { path, .. } => json!({ "enabled": sys.task_enabled(path)? }),
     })
 }
 
@@ -120,6 +122,7 @@ pub fn apply(a: &Action, sys: &dyn SystemOps) -> SysResult<()> {
         Action::ProcessPriority { process, class } => sys.set_proc_priority(process, *class),
         Action::ProcessEcoQos { process, on } => sys.set_proc_eco_qos(process, *on),
         Action::ProcessSuspend { process } => sys.suspend(process),
+        Action::ScheduledTask { path, enabled } => sys.set_task_enabled(path, *enabled),
     }
 }
 
@@ -178,6 +181,7 @@ pub fn revert(a: &Action, sys: &dyn SystemOps, before: &Value) -> SysResult<()> 
             field::<Option<bool>>(before, "on")?.unwrap_or(false),
         ),
         Action::ProcessSuspend { process } => sys.resume(process),
+        Action::ScheduledTask { path, .. } => sys.set_task_enabled(path, field(before, "enabled")?),
     }
 }
 
