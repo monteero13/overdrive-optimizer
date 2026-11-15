@@ -1,0 +1,23 @@
+{
+  "name": "overdrive-ui-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Overdrive 1.0 — frontend (Liquid Telemetry). Phase 2: runs against a mock engine that speaks the overdrive.v1 protocol.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit",
+    "test": "node --experimental-strip-types --no-warnings test/run.ts"
+  },
+  "dependencies": {
+    "@fontsource-variable/inter": "^5.2.0",
+    "@fontsource/jetbrains-mono": "^5.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "~5.9.3",
+    "vite": "^7.1.0"
+  }
+}
