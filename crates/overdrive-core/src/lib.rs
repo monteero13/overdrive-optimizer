@@ -7,10 +7,12 @@
 //! fakes live in [`testing`].
 
 pub mod coach;
+pub mod engine;
 pub mod issues;
 pub mod memspeed;
 pub mod profile;
 pub mod profiler;
+pub mod safety;
 pub mod source;
 pub mod synth;
 pub mod telemetry;

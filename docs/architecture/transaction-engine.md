@@ -55,8 +55,8 @@ Se ejecuta en cada arranque del servicio:
 
 1. Busca transacciones `kind='session'` en `open | applying | applied | reverting`.
 2. Para cada una, revierte en **orden inverso de `seq`** todos los pasos en `captured | applied | verified | apply_failed | revert_failed`. Un paso en `captured` también se revierte, porque el corte pudo llegar a mitad de `apply`, y como `revert(before)` es idempotente es seguro hacerlo.
-3. Reanuda o restaura todos los `background_actions` con `state='active'` cuyo proceso siga vivo, identificándolo por `(pid, proc_start)`. Si el proceso ya no existe, se marca como `gone`.
-4. Las transacciones **`persistent` no se revierten**, porque son cambios que el usuario aceptó mantener. Sí se verifican: si un paso persistente quedó a medias, se completa o se revierte entero.
+3. Las acciones sobre procesos (EcoQoS, prioridad, suspensión) son pasos `process_*` de la transacción de sesión, así que el punto 2 las revierte: los procesos suspendidos se reanudan y las prioridades se restauran, identificando cada proceso por `(pid, start_time)`. Si el proceso ya no existe, no hay nada que restaurar.
+4. Las transacciones **`persistent` no se revierten**, porque son cambios que el usuario aceptó mantener. Sí se verifican: una transacción persistente que quedó a medias se revierte entera (todo o nada); si un revert falló antes, se reintenta.
 5. Registra `boots.recovered = 1` y genera un aviso en lenguaje sencillo para la UI: "Overdrive se cerró inesperadamente durante tu partida. Hemos dejado tu PC como estaba."
 
 ## 4. Conflictos y superposición

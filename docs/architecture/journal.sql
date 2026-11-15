@@ -95,19 +95,8 @@ CREATE TABLE IF NOT EXISTS tweak_outcomes (
   PRIMARY KEY (tweak_id, game_id)
 );
 
--- Background isolation bookkeeping (lesson v0.2.1): every touched process is resumable
-CREATE TABLE IF NOT EXISTS background_actions (
-  id          INTEGER PRIMARY KEY,
-  tx_id       INTEGER NOT NULL REFERENCES transactions(tx_id),
-  pid         INTEGER NOT NULL,
-  proc_start  INTEGER NOT NULL,
-  image       TEXT NOT NULL,
-  action      TEXT NOT NULL CHECK (action IN ('lower_priority','eco_qos','suspend')),
-  orig_priority TEXT,
-  state       TEXT NOT NULL CHECK (state IN ('active','restored','gone')), -- gone = process exited
-  updated_at  INTEGER NOT NULL
-);
-CREATE INDEX IF NOT EXISTS ix_bg_active ON background_actions(state) WHERE state = 'active';
+-- Background isolation (EcoQoS / priority / suspend) is journaled as ordinary steps
+-- (action_kind process_*), so it gets the same write-ahead + recovery guarantees.
 
 -- Drift Guardian (Module I)
 CREATE TABLE IF NOT EXISTS drift_events (
