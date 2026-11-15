@@ -3,7 +3,7 @@ const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
 const { psRun } = require('./ps');
 const { analyzeHardware, analyzeDrivers } = require('./system');
-const { tweaksForLevel, getTweak } = require('./tweaks');
+const { TWEAKS, tweaksForLevel, getTweak } = require('./tweaks');
 const { sampleMetrics } = require('./monitor');
 const { initUpdater, checkForUpdates, quitAndInstall } = require('./updater');
 const profiles = require('./profiles');
@@ -86,8 +86,11 @@ ipcMain.handle('tweaks:list', async (_e, { level, caps }) => {
     if (t.amdOnly && !vendors.includes('amd')) return false;
     return true;
   });
+  // Retirados (v0.2.2): se comprueban siempre para ofrecer volver al valor de Windows
+  // si siguen aplicados de versiones anteriores. Nunca se ofrecen para aplicar.
+  const retired = TWEAKS.filter((t) => t.retired && t.restoreOffer);
   const withState = await Promise.all(
-    list.map(async (t) => {
+    [...list, ...retired].map(async (t) => {
       let state = 'unknown';
       try {
         const out = (await psRun(t.check, { timeout: t.timeout || 60000 })).trim();
@@ -106,11 +109,13 @@ ipcMain.handle('tweaks:list', async (_e, { level, caps }) => {
         irreversible: !!t.irreversible,
         isInstall: !!t.isInstall,
         informational: !!t.informational,
+        retired: t.retired || null,
         state,
       };
     })
   );
-  return withState;
+  // Un retirado solo se muestra si sigue aplicado (state 'on').
+  return withState.filter((t) => !t.retired || t.state === 'on');
 });
 
 // Crea un punto de restauracion del sistema. Requiere admin y Restauracion activada.
@@ -142,6 +147,10 @@ ipcMain.handle('tweaks:apply', async (e, { ids }) => {
   for (let i = 0; i < ids.length; i++) {
     const t = getTweak(ids[i]);
     if (!t) continue;
+    if (t.retired) {
+      results.push({ id: t.id, ok: false, message: t.retired });
+      continue;
+    }
     e.sender.send('tweaks:progress', { id: t.id, title: t.title, index: i, total: ids.length, isInstall: !!t.isInstall });
     try {
       const out = (await psRun(t.apply, { timeout: t.timeout || 120000 })).trim();
@@ -247,7 +256,8 @@ const activeProfiles = new Set();
 async function applyProfile(p) {
   for (const id of p.tweaks || []) {
     const t = getTweak(id);
-    if (t) { try { await psRun(t.apply, { timeout: t.timeout || 120000 }); } catch (_) {} }
+    // Perfiles guardados o importados antes de v0.2.2 pueden incluir tweaks retirados: nunca se aplican.
+    if (t && !t.retired) { try { await psRun(t.apply, { timeout: t.timeout || 120000 }); } catch (_) {} }
   }
   if (p.gpuMax) {
     const t = getTweak('nvidia-max-perf');

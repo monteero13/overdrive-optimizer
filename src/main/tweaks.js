@@ -5,6 +5,9 @@
 //  - needsAdmin: si requiere privilegios de administrador
 //  - check:  PS que imprime 'on' | 'off' | 'unknown' (estado actual)
 //  - apply / revert: PS que realiza / deshace el cambio
+//  - retired: (v0.2.2) motivo por el que se retiró. Un tweak retirado no aparece en
+//    ningún nivel ni se puede aplicar (tampoco desde perfiles); si sigue aplicado en
+//    el PC y restoreOffer es true, la UI ofrece volver al valor de Windows (revert).
 //
 // Filosofia: nada se aplica sin confirmacion del usuario y siempre tras un
 // punto de restauracion. Preferimos cambios estandar y documentados de Windows.
@@ -133,7 +136,9 @@ const TWEAKS = [
     title: 'Desactivar Network Throttling (multimedia)',
     desc: 'Pone NetworkThrottlingIndex al maximo para no limitar el trafico de red por multimedia.',
     category: 'Red',
-    levels: ['agresiva'],
+    levels: [],
+    retired: 'Retirado en v0.2.2: no mejora los juegos y altera como Windows reparte la red. Recomendamos volver al valor de Windows.',
+    restoreOffer: true,
     risk: 'medium',
     needsAdmin: true,
     check: `$v = (Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Multimedia\\SystemProfile' -Name NetworkThrottlingIndex -ErrorAction SilentlyContinue).NetworkThrottlingIndex; if ($v -eq 4294967295) { 'on' } else { 'off' }`,
@@ -145,7 +150,9 @@ const TWEAKS = [
     title: 'Desactivar SysMain (Superfetch) — solo SSD',
     desc: 'En equipos con SSD, SysMain aporta poco y consume recursos. Desactiva el servicio.',
     category: 'Servicios',
-    levels: ['agresiva'],
+    levels: [],
+    retired: 'Retirado en v0.2.2: sin ganancia medible en SSD y perjudicial en discos duros.',
+    restoreOffer: true,
     risk: 'medium',
     needsAdmin: true,
     ssdOnly: true,
@@ -235,7 +242,9 @@ const TWEAKS = [
     title: 'Reducir suavizado de fuentes (renderizado de texto)',
     desc: 'Desactiva el suavizado ClearType del texto. Gana algo de rendimiento; el texto se vera menos suave.',
     category: 'Animaciones',
-    levels: ['agresiva'],
+    levels: [],
+    retired: 'Retirado en v0.2.2: empeora la legibilidad del texto sin mejorar los juegos.',
+    restoreOffer: true,
     risk: 'medium',
     needsAdmin: false,
     check: `$v = (Get-ItemProperty 'HKCU:\\Control Panel\\Desktop' -Name FontSmoothing -ErrorAction SilentlyContinue).FontSmoothing; if ("$v" -eq '0') { 'on' } else { 'off' }`,
@@ -286,7 +295,9 @@ const TWEAKS = [
     title: 'Desactivar algoritmo de Nagle (red)',
     desc: 'Reduce la latencia en juegos online fijando TcpAckFrequency=1 en los adaptadores con IP activa.',
     category: 'Latencia',
-    levels: ['agresiva'],
+    levels: [],
+    retired: 'Retirado en v0.2.2: los juegos ya gestionan esto por su cuenta; no aporta y puede empeorar algunas conexiones.',
+    restoreOffer: true,
     risk: 'medium',
     needsAdmin: true,
     check: `
@@ -321,7 +332,9 @@ const TWEAKS = [
     title: 'Liberar ancho de banda reservado (QoS)',
     desc: 'Elimina el 20% de ancho de banda que Windows reserva por defecto para QoS, dejandolo disponible.',
     category: 'Red',
-    levels: ['media', 'agresiva'],
+    levels: [],
+    retired: 'Retirado en v0.2.2: el \'20 % de ancho de banda reservado\' es un mito; Windows no lo reserva.',
+    restoreOffer: true,
     risk: 'medium',
     needsAdmin: true,
     check: `$v = (Get-ItemProperty 'HKLM:\\SOFTWARE\\Policies\\Microsoft\\Windows\\Psched' -Name NonBestEffortLimit -ErrorAction SilentlyContinue).NonBestEffortLimit; if ($v -eq 0) { 'on' } else { 'off' }`,
@@ -336,7 +349,9 @@ const TWEAKS = [
     title: 'TCP a maxima velocidad (autotuning + RSS)',
     desc: 'Activa el autoajuste de ventana TCP y Receive-Side Scaling para aprovechar todo el ancho de banda en descargas.',
     category: 'Red',
-    levels: ['agresiva'],
+    levels: [],
+    retired: 'Retirado en v0.2.2: dejaba el valor por defecto de Windows, no cambiaba nada.',
+    restoreOffer: false,
     risk: 'medium',
     needsAdmin: true,
     check: `$a = (Get-NetTCPSetting -SettingName Internet -ErrorAction SilentlyContinue).AutoTuningLevelLocal; if ("$a" -eq 'Normal') { 'on' } else { 'off' }`,
@@ -402,7 +417,9 @@ const TWEAKS = [
     title: 'Instalar MSI Center (perfiles de ventiladores)',
     desc: 'Instala MSI Center via winget para activar perfiles de maximo rendimiento de ventiladores en equipos MSI.',
     category: 'Herramientas',
-    levels: ['media', 'agresiva'],
+    levels: [],
+    retired: 'Retirado en v0.2.2: instalar software de terceros no es una optimizacion.',
+    restoreOffer: false,
     risk: 'low',
     needsAdmin: true,
     isInstall: true,

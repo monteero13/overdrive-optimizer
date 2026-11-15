@@ -119,13 +119,14 @@ async function loadTweaks() {
   try {
     const list = await api.listTweaks(state.level, { hasSSD: state.hasSSD, gpuVendors: state.gpuVendors });
     state.tweaks = list;
-    state.selected = new Set(list.filter((t) => t.state !== 'on' && !t.isInstall && !t.informational).map((t) => t.id));
+    state.selected = new Set(list.filter((t) => t.state !== 'on' && !t.isInstall && !t.informational && !t.retired).map((t) => t.id));
     renderPlan();
   } catch (err) { toast('No se pudo cargar el plan: ' + err.message, true); }
 }
 
 function tweakTags(t) {
   const on = t.isInstall ? 'instalado' : 'activo';
+  if (t.retired) return '<span class="tag retired">retirado · recomendamos deshacerlo</span>';
   return [
     `<span class="tag risk-${t.risk}">${t.risk === 'low' ? 'bajo' : t.risk === 'medium' ? 'medio' : 'alto'}</span>`,
     t.isInstall ? '<span class="tag install">instalación</span>' : '',
@@ -137,18 +138,41 @@ function tweakTags(t) {
 }
 function renderPlan() {
   const cont = $('#planList');
-  cont.innerHTML = state.tweaks.map((t) => `
+  cont.innerHTML = state.tweaks.map((t) => t.retired ? `
+    <div class="tweak retired" data-id="${t.id}">
+      <div style="flex:1;min-width:0"><div class="tt">${t.title} ${tweakTags(t)}</div><div class="td">${t.retired}</div></div>
+      <button class="btn-restore" data-restore="${t.id}">Restaurar valor de Windows</button>
+    </div>` : `
     <div class="tweak ${state.selected.has(t.id) ? 'sel' : ''}" data-id="${t.id}">
       <div class="chk"></div>
       <div style="flex:1;min-width:0"><div class="tt">${t.title} ${tweakTags(t)}</div><div class="td">${t.desc}</div></div>
     </div>`).join('');
-  cont.querySelectorAll('.tweak').forEach((el) => el.addEventListener('click', () => {
+  cont.querySelectorAll('[data-restore]').forEach((b) => b.addEventListener('click', () => restoreRetired(b.dataset.restore, b)));
+  cont.querySelectorAll('.tweak:not(.retired)').forEach((el) => el.addEventListener('click', () => {
     const id = el.dataset.id;
     state.selected.has(id) ? state.selected.delete(id) : state.selected.add(id);
     el.classList.toggle('sel'); updateApplyBtn();
   }));
   updateApplyBtn();
 }
+// v0.2.2: deshacer un tweak retirado que sigue aplicado de una versión anterior.
+async function restoreRetired(id, btn) {
+  const t = state.tweaks.find((x) => x.id === id);
+  if (t && t.needsAdmin && state.analysis && !state.analysis.admin) {
+    toast('Hace falta administrador para restaurarlo. Acepta el aviso de Windows (UAC)…');
+    const r = await api.relaunchAdmin();
+    if (!r || !r.ok) toast('No se pudo reabrir como administrador. Cierra y abre con clic derecho → "Ejecutar como administrador".', true);
+    return;
+  }
+  btn.disabled = true; btn.textContent = 'Restaurando…';
+  try {
+    const res = await api.revert([id]);
+    const ok = res && res[0] && res[0].ok;
+    toast(ok ? `${t ? t.title : id}: restaurado al valor de Windows.` : 'No se pudo restaurar: ' + ((res && res[0] && res[0].message) || 'error'), !ok);
+  } catch (err) { toast('No se pudo restaurar: ' + err.message, true); }
+  await loadTweaks();
+}
+
 function updateApplyBtn() {
   const btn = $('#btnApply'), n = state.selected.size;
   btn.disabled = n === 0;
@@ -267,7 +291,7 @@ async function ensureProfileTweaks() {
   if (state.profileTweaks) return state.profileTweaks;
   const caps = { hasSSD: state.hasSSD, gpuVendors: state.gpuVendors.length ? state.gpuVendors : ['nvidia'] };
   const list = await api.listTweaks('agresiva', caps);
-  state.profileTweaks = list.filter((t) => !t.isInstall && !t.informational && t.id !== 'nvidia-max-perf');
+  state.profileTweaks = list.filter((t) => !t.isInstall && !t.informational && !t.retired && t.id !== 'nvidia-max-perf');
   return state.profileTweaks;
 }
 async function loadProfiles() {
@@ -475,7 +499,7 @@ async function easyOptimize() {
     state.level = 'media';
     const list = await api.listTweaks('media', { hasSSD: state.hasSSD, gpuVendors: state.gpuVendors });
     state.tweaks = list;
-    const ids = list.filter((t) => t.state !== 'on' && !t.isInstall && !t.informational).map((t) => t.id);
+    const ids = list.filter((t) => t.state !== 'on' && !t.isInstall && !t.informational && !t.retired).map((t) => t.id);
     if (!ids.length) { orb.classList.remove('busy'); orb.classList.add('done'); status.innerHTML = 'Tu PC ya estaba optimizado. <span class="gain">✓</span>'; return; }
     status.textContent = 'Aplicando mejoras…';
     const results = await runApply(ids, true);

@@ -33,8 +33,26 @@ para jugar con mejor rendimiento. Pensada para Windows 10/11.
 | Media | Desactivar hibernación | medio | sí |
 | Media | Desactivar Power Throttling | medio | sí |
 | Agresiva | GPU Hardware Scheduling (HAGS) | medio | sí |
-| Agresiva | Desactivar Network Throttling | medio | sí |
-| Agresiva | Desactivar SysMain (solo SSD) | medio | sí |
+
+(Tabla resumida: el catálogo completo está en `src/main/tweaks.js`.)
+
+### Retirados en v0.2.2
+
+Estos tweaks se han retirado porque no mejoran los juegos o pueden empeorar el equipo
+(ver la auditoría en [`docs/architecture/migration.md`](docs/architecture/migration.md)).
+Ya no se ofrecen en ningún nivel ni se aplican desde perfiles antiguos. Si alguno sigue
+aplicado en tu PC de una versión anterior, el plan lo muestra con el botón
+**«Restaurar valor de Windows»**.
+
+| Tweak | Motivo | Se ofrece restaurar |
+|-------|--------|---------------------|
+| Network Throttling | No mejora los juegos; altera cómo Windows reparte la red | sí |
+| Algoritmo de Nagle | Los juegos ya lo gestionan; puede empeorar algunas conexiones | sí |
+| Ancho de banda QoS | El "20 % reservado" es un mito | sí |
+| SysMain (Superfetch) | Sin ganancia en SSD, perjudicial en HDD | sí |
+| Suavizado de fuentes | Peor legibilidad sin ganancia en juegos | sí |
+| TCP autotuning + RSS | Era el valor por defecto de Windows: no cambiaba nada | no (nada que deshacer) |
+| Instalar MSI Center | Instalar software de terceros no es una optimización | no (puede que lo quieras) |
 
 ## Requisitos
 
