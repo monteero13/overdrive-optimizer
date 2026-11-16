@@ -1,0 +1,36 @@
+# Change the staged rollout of a published release (goals.md §8):
+#   0   = halt it (nobody new receives it; installs that already have it are unaffected)
+#   100 = everyone
+# Only the "rollout" field of latest.json changes; the signed installer and its signature
+# stay exactly as published.
+name: Rollout
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag (e.g. v1.0.0)"
+        required: true
+      rollout:
+        description: "Percentage of installs that receive it (0-100)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  rollout:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Update latest.json
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.inputs.tag }}
+          PCT: ${{ github.event.inputs.rollout }}
+        run: |
+          case "$PCT" in ''|*[!0-9]*) echo "rollout must be 0-100"; exit 1;; esac
+          [ "$PCT" -le 100 ] || { echo "rollout must be 0-100"; exit 1; }
+          gh release download "$TAG" --repo "${{ github.repository }}" --pattern latest.json
+          jq --argjson p "$PCT" '.rollout = $p' latest.json > tmp.json && mv tmp.json latest.json
+          gh release upload "$TAG" latest.json --clobber --repo "${{ github.repository }}"
+          echo "$TAG rollout → $PCT %"

@@ -9,6 +9,8 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod updater;
+
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{self, Sender};
 use std::sync::{Arc, Mutex};
@@ -182,12 +184,23 @@ fn show_window(app: &AppHandle) {
 fn main() {
     let tray_only = std::env::args().any(|a| a == "--tray");
     let relay = Arc::new(Relay::default());
+    let relay_upd = relay.clone();
     let app = tauri::Builder::default()
         .manage(relay.clone())
-        .invoke_handler(tauri::generate_handler![ipc_send, ipc_status, open_issue, fetch_presets])
+        .manage(updater::UpdaterState::default())
+        .plugin(tauri_plugin_updater::Builder::new().build())
+        .invoke_handler(tauri::generate_handler![
+            ipc_send,
+            ipc_status,
+            open_issue,
+            fetch_presets,
+            updater::update_status,
+            updater::update_install
+        ])
         .setup(move |app| {
             let h = app.handle().clone();
             thread::spawn(move || relay_loop(h, relay));
+            updater::start(app.handle().clone(), relay_upd);
             let open = MenuItem::with_id(app, "open", "Abrir Overdrive", true, None::<&str>)?;
             let resume = MenuItem::with_id(app, "resume", "Reanudar apps en pausa", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Salir", true, None::<&str>)?;

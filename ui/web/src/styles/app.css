@@ -1273,3 +1273,4 @@ table.data td {
 .note { margin: 10px 0; padding: 8px 12px; border-left: 3px solid var(--line); color: var(--text-2); }
 .share-entry { width: 100%; text-align: left; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; }
 .share-entry:hover { background: var(--surface-2); }
+.banner.update { top: auto; bottom: 20px; }

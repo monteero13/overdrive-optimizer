@@ -29,6 +29,8 @@ export interface UiState {
   shareInput: string;
   /** The friend's request code being answered (help-a-friend). */
   shareRequestCode: string;
+  /** A signed update the shell offered (staged rollout already applied). */
+  update: { version: string; installing: boolean } | null;
 }
 
 export const initialUi = (): UiState => ({
@@ -47,4 +49,5 @@ export const initialUi = (): UiState => ({
   share: null,
   shareInput: '',
   shareRequestCode: '',
+  update: null,
 });

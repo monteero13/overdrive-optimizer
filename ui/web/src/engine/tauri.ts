@@ -56,3 +56,22 @@ export async function fetchPresets(): Promise<unknown> {
     : await (await fetch('https://raw.githubusercontent.com/monteero13/overdrive-optimizer/master/presets/community.json')).text();
   return JSON.parse(text) as unknown;
 }
+
+export interface UpdateInfo {
+  version: string;
+  notes: string | null;
+}
+
+/** Signed update offered by the shell (staged rollout already applied). Never in a browser. */
+export async function watchUpdates(onAvailable: (u: UpdateInfo) => void, onRollback: (from: string) => void): Promise<void> {
+  if (!inTauri()) return;
+  await listen<UpdateInfo>('update://available', (e) => onAvailable(e.payload));
+  await listen<string>('update://rollback', (e) => onRollback(e.payload));
+  const now = await invoke<UpdateInfo | null>('update_status');
+  if (now) onAvailable(now);
+}
+
+/** Download, verify and run the installer (Windows asks for administrator rights). */
+export async function installUpdate(): Promise<void> {
+  await invoke('update_install');
+}

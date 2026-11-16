@@ -589,7 +589,7 @@
   },
   "snapshot": {
     "activeSession": null,
-    "bootId": "18e89f4b952fc980-21fc-fe598f3190",
+    "bootId": "18e8a05533b81440-244c-62ac6f31e0",
     "coach": null,
     "games": [
       {
@@ -719,7 +719,7 @@
     "operations": [],
     "persistentChanges": [
       {
-        "since": 1794859598992,
+        "since": 1794860739829,
         "source": "user_accept",
         "tweakId": "hybrid_gpu"
       }

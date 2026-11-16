@@ -202,3 +202,12 @@ export function devPanel(s: EngineSnapshot | null, ui: UiState, sc: Scenario, pr
     </div>
   </details>`;
 }
+
+/** A signed update is available: the user chooses when (it needs administrator rights). */
+export function updateBanner(u: { version: string; installing: boolean } | null): string {
+  if (!u) return '';
+  return `<div class="card banner update" role="status"><div><b>${tx('update.available', { version: u.version })}</b>
+    <div class="muted" style="font-size:12.5px">${tx('update.sub')}</div></div>
+    <button class="btn primary" data-action="update-install" data-key="update-install"${attr('disabled', u.installing)}>${tx(u.installing ? 'update.installing' : 'update.install')}</button>
+    <button class="btn ghost" data-action="update-later" data-key="update-later">${tx('update.later')}</button></div>`;
+}

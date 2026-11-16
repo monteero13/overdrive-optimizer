@@ -4,7 +4,7 @@ import { RequestError, type EngineClient } from '../engine/client.ts';
 import { setLocale, t } from '../i18n/index.ts';
 import type { MockService } from '../mock/service.ts';
 import type { PresetId } from '../mock/presets.ts';
-import { fetchPresets, openIssue } from '../engine/tauri.ts';
+import { fetchPresets, installUpdate, openIssue, watchUpdates } from '../engine/tauri.ts';
 import type {
   CardResult,
   EngineSnapshot,
@@ -19,7 +19,7 @@ import type {
 } from '../proto/types.ts';
 import { patch } from './dom.ts';
 import { bindMagnetic } from './magnetic.ts';
-import { banner, coachModal, confirmModal, devPanel, hud, opModal, promptsAndToasts, settingsModal, topbar, tray } from './overlays.ts';
+import { banner, coachModal, confirmModal, devPanel, hud, opModal, promptsAndToasts, settingsModal, topbar, tray, updateBanner } from './overlays.ts';
 import { Pulse } from './pulse.ts';
 import { reportView, wireReportChart } from './report.ts';
 import { cardSvg, downloadPng, shareModal, type ShareState } from './share.ts';
@@ -56,6 +56,13 @@ export class App {
       if (e.key === 'Escape') this.closeTopmost();
     });
     motionQuery.addEventListener('change', () => this.render());
+    void watchUpdates(
+      (u) => {
+        this.ui.update = { version: u.version, installing: false };
+        this.renderOverlays();
+      },
+      (from) => this.toast('warn', t('update.rolled_back', { version: from })),
+    );
     matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => this.pulse.refreshColors());
     bindMagnetic(root, () => this.reducedMotion());
     this.pulse.canvas.addEventListener('pointermove', (e) => this.pulseHover(e));
@@ -140,6 +147,7 @@ export class App {
     const s = this.snap;
     const parts = [
       banner(this.client.link, !!s),
+      updateBanner(this.ui.update),
       s && this.ui.report ? reportView(s, this.ui.report, this.ui.reportTable) : '',
       coachModal(s, this.ui),
       settingsModal(s, this.ui),
@@ -405,6 +413,19 @@ export class App {
         this.ui.trayOpen = false;
         this.ui.view = 'games';
         return this.render();
+      // ---- updates (goals.md §8) ----
+      case 'update-install':
+        if (!this.ui.update) return;
+        this.ui.update = { ...this.ui.update, installing: true };
+        this.renderOverlays();
+        void installUpdate().catch(() => {
+          if (this.ui.update) this.ui.update = { ...this.ui.update, installing: false };
+          this.toast('bad', t('update.failed'));
+        });
+        return;
+      case 'update-later':
+        this.ui.update = null;
+        return this.renderOverlays();
       // ---- sharing (goals.md §7) ----
       case 'share-card':
         void this.call<CardResult>('share.card', { txId: Number(id) }).then((d) => d && this.openShare({ kind: 'card', data: d }));

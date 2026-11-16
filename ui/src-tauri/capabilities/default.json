@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The Overdrive window may only relay overdrive.v1 frames, listen to relay events, open a pre-filled issue of the Overdrive repository and download the public presets file. No shell, no fs, no general http.",
+  "description": "The Overdrive window may only relay overdrive.v1 frames, listen to relay events, open a pre-filled issue of the Overdrive repository, download the public presets file and ask for / install a signed update. No shell, no fs, no general http, no updater plugin commands.",
   "windows": ["main"],
   "permissions": [
     "core:event:allow-listen",
@@ -9,6 +9,8 @@
     "allow-ipc-send",
     "allow-ipc-status",
     "allow-open-issue",
-    "allow-fetch-presets"
+    "allow-fetch-presets",
+    "allow-update-status",
+    "allow-update-install"
   ]
 }

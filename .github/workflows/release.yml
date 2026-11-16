@@ -1,0 +1,120 @@
+# Release: push a tag `v<version>` matching ui/src-tauri/tauri.conf.json → signed update
+# artifacts on GitHub Releases + `latest.json` for the in-app updater (goals.md §8).
+#
+# Secrets:
+#   TAURI_SIGNING_PRIVATE_KEY / TAURI_SIGNING_PRIVATE_KEY_PASSWORD  (required: update signature)
+#   WINDOWS_CERT_PFX_BASE64 / WINDOWS_CERT_PASSWORD                (optional: Authenticode)
+#
+# Without a code-signing certificate the installer is unsigned (SmartScreen warns), but
+# updates are still verified by the app with the updater key.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      rollout:
+        description: "Initial rollout percentage (0-100)"
+        default: "100"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    env:
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      ROLLOUT: ${{ github.event.inputs.rollout || '100' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version must match the tag
+        shell: pwsh
+        run: |
+          $v = (Get-Content ui/src-tauri/tauri.conf.json | ConvertFrom-Json).version
+          "VERSION=$v" | Out-File -Append $env:GITHUB_ENV
+          if ("${{ github.ref_type }}" -eq "tag" -and "${{ github.ref_name }}" -ne "v$v") { throw "tag ${{ github.ref_name }} != v$v" }
+          if (-not $env:TAURI_SIGNING_PRIVATE_KEY) { throw "TAURI_SIGNING_PRIVATE_KEY secret is missing" }
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ui/web/package-lock.json
+
+      - name: UI
+        working-directory: ui/web
+        run: |
+          npm ci
+          npm run build
+          npm test
+
+      - name: Tests
+        run: cargo test --workspace
+
+      - name: PresentMon (pinned version, hash-checked)
+        shell: pwsh
+        run: ./tools/fetch-presentmon.ps1
+
+      - name: Service
+        run: cargo build --release -p overdrive-svc
+
+      - name: Code signing certificate (optional)
+        id: cert
+        if: env.HAS_CERT == 'true'
+        env:
+          HAS_CERT: ${{ secrets.WINDOWS_CERT_PFX_BASE64 != '' }}
+        shell: pwsh
+        run: |
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx", [Convert]::FromBase64String("${{ secrets.WINDOWS_CERT_PFX_BASE64 }}"))
+          $signtool = (Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" | Sort-Object FullName -Descending | Select-Object -First 1).FullName
+          $cmd = "`"$signtool`" sign /f `"$env:RUNNER_TEMP\cert.pfx`" /p `"${{ secrets.WINDOWS_CERT_PASSWORD }}`" /fd sha256 /tr http://timestamp.digicert.com /td sha256 %1"
+          & $signtool sign /f "$env:RUNNER_TEMP\cert.pfx" /p "${{ secrets.WINDOWS_CERT_PASSWORD }}" /fd sha256 /tr http://timestamp.digicert.com /td sha256 target/release/overdrive-svc.exe
+          $cfg = @{ bundle = @{ windows = @{ signCommand = $cmd } } } | ConvertTo-Json -Depth 5 -Compress
+          "TAURI_SIGN_CONFIG=$cfg" | Out-File -Append $env:GITHUB_ENV
+
+      # Authenticode (if any) happens inside the bundler, BEFORE the update signature,
+      # so the .sig matches the final installer bytes.
+      - name: Installer + update signature
+        working-directory: ui
+        shell: pwsh
+        run: |
+          if ($env:TAURI_SIGN_CONFIG) { ./web/node_modules/.bin/tauri build --config $env:TAURI_SIGN_CONFIG }
+          else { ./web/node_modules/.bin/tauri build }
+
+      - name: latest.json (signed manifest with staged rollout)
+        shell: pwsh
+        run: |
+          $dir = "target/release/bundle/nsis"
+          $exe = Get-ChildItem "$dir/*_x64-setup.exe" | Select-Object -First 1
+          $sig = Get-Content "$($exe.FullName).sig" -Raw
+          $tag = "v$env:VERSION"
+          $manifest = [ordered]@{
+            version   = $env:VERSION
+            notes     = "https://github.com/${{ github.repository }}/releases/tag/$tag"
+            pub_date  = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
+            rollout   = [int]$env:ROLLOUT
+            platforms = [ordered]@{
+              "windows-x86_64" = [ordered]@{
+                signature = $sig.Trim()
+                url       = "https://github.com/${{ github.repository }}/releases/download/$tag/$($exe.Name)"
+              }
+            }
+          }
+          $manifest | ConvertTo-Json -Depth 5 | Set-Content -Encoding utf8NoBOM "$dir/latest.json"
+          "EXE=$($exe.FullName)" | Out-File -Append $env:GITHUB_ENV
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $dir = "target/release/bundle/nsis"
+          gh release create "v$env:VERSION" --title "Overdrive $env:VERSION" --generate-notes --latest `
+            "$env:EXE" "$env:EXE.sig" "$dir/latest.json"

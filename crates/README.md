@@ -49,10 +49,21 @@ Arreglo:
 
 **Resultado: 0,026 % de CPU y 6,7 MB.** El juego se detecta como mucho 3 s después de arrancar. ETW (§4.3), que no tendría coste en reposo, sigue pendiente.
 
+### Actualizaciones
+
+| Pieza | Dónde | Qué hace |
+|---|---|---|
+| Manifiesto firmado | `tauri.conf.json` (`plugins.updater`), `release.yml` | Cada instalador lleva una firma minisign. La app solo instala lo que valida con la clave pública que lleva dentro. Verificado aparte: la firma del instalador local es válida con esa clave y un bit cambiado la invalida. |
+| Despliegue escalonado | `ui/src-tauri/src/updater.rs`, `rollout.yml` | `latest.json` lleva `"rollout": 0–100`. Cada instalación tiene un número fijo del 0 al 99 y recibe la versión si ese número es menor que el porcentaje. Con `rollout.yml` se cambia el porcentaje de una release publicada (0 la detiene) sin tocar el instalador ni su firma. |
+| Vuelta atrás automática | `updater.rs` | Antes de instalar se apunta la versión de origen. En el primer arranque de la nueva, si el servicio no responde en 120 s, se descarga el instalador firmado de la release anterior y se reinstala, una sola vez. |
+| El usuario decide | UI (`updateBanner`) | La actualización necesita permisos de administrador: se ofrece con un aviso y no se instala sola, salvo la vuelta atrás de una versión rota. Los comandos genéricos del plugin no se conceden a la ventana. |
+| Release | `.github/workflows/release.yml` | Con un tag `v<versión>` (debe coincidir con `tauri.conf.json`): tests, PresentMon con hash comprobado, servicio, instalador con su firma de actualización, `latest.json` y publicación. Si hay certificado (`WINDOWS_CERT_PFX_BASE64`), firma Authenticode el servicio y el instalador **antes** de la firma de actualización. |
+
+**Clave del actualizador:** está en `%USERPROFILE%\.tauri\overdrive-updater.key` (con contraseña en `overdrive-updater.password`) y como secretos de GitHub. **Haz copia de seguridad:** sin ella no se pueden publicar actualizaciones para las instalaciones existentes.
+
 ### Pendiente
 
-- [ ] Actualizador: manifiesto firmado (ed25519), despliegue escalonado y vuelta atrás.
-- [ ] Workflow de release y paso de firma de código preparado para cuando haya certificado.
+- [ ] Primera release publicada y prueba real de actualizar y de volver atrás entre dos versiones.
 - [ ] Exportar diagnóstico anonimizado y rotación de logs (§8).
 - [ ] Instalación limpia en máquinas virtuales Windows 10 y 11 (criterio de terminado de la fase 8).
 - [ ] Subir los cambios a GitHub para que funcionen la CI, los presets y las releases.
