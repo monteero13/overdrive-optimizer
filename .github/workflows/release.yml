@@ -55,15 +55,16 @@ jobs:
           npm run build
           npm test
 
-      - name: Tests
-        run: cargo test --workspace
-
+      # Installer resources first: the shell's build script requires them for any cargo step.
       - name: PresentMon (pinned version, hash-checked)
         shell: pwsh
         run: ./tools/fetch-presentmon.ps1
 
       - name: Service
         run: cargo build --release -p overdrive-svc
+
+      - name: Tests
+        run: cargo test --workspace
 
       - name: Code signing certificate (optional)
         id: cert

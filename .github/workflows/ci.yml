@@ -42,6 +42,14 @@ jobs:
         working-directory: ui/web
         run: npm run build
 
+      # The shell's build script requires the installer resources to exist (even for
+      # clippy/tests): the release service binary and the pinned, hash-checked PresentMon.
+      - name: Installer resources
+        shell: pwsh
+        run: |
+          ./tools/fetch-presentmon.ps1
+          cargo build --release -p overdrive-svc
+
       - name: Clippy (no warnings allowed)
         run: cargo clippy --workspace --all-targets -- -D warnings
 
@@ -55,6 +63,4 @@ jobs:
 
       - name: Footprint budget (idle service < 15 MB, < 0.1 % CPU)
         shell: pwsh
-        run: |
-          cargo build --release -p overdrive-svc
-          powershell -NoProfile -ExecutionPolicy Bypass -File tools/footprint.ps1 -WarmupSeconds 30 -Seconds 120
+        run: powershell -NoProfile -ExecutionPolicy Bypass -File tools/footprint.ps1 -WarmupSeconds 30 -Seconds 120
