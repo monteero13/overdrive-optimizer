@@ -1,0 +1,108 @@
+# Titles protected by an anti-cheat: Overdrive NEVER patches any of their files, even if
+# detection on a machine fails (defence in depth on top of safety.rs). OS-level tweaks
+# that never touch the game (power, GPU preference, driver profile, background isolation)
+# are still allowed when the catalog marks them anticheat_safe.
+
+[[game]]
+id = "counter_strike_2"
+name = "Counter-Strike 2"
+db_version = 1
+library_ids = ["steam:730"]
+anticheat = "protected"
+notes = "VAC. Video settings live in Steam Cloud too."
+
+[[game]]
+id = "dota_2"
+name = "Dota 2"
+db_version = 1
+library_ids = ["steam:570"]
+anticheat = "protected"
+notes = "VAC."
+
+[[game]]
+id = "fortnite"
+name = "Fortnite"
+db_version = 1
+library_ids = ["epic:fortnite", "epic:afdb5a85efcc45d8ae8e406e2121d81c"]
+anticheat = "protected"
+notes = "Easy Anti-Cheat / BattlEye. Settings also sync to Epic's cloud."
+
+[[game]]
+id = "rocket_league"
+name = "Rocket League"
+db_version = 1
+library_ids = ["epic:sugar", "steam:252950"]
+anticheat = "protected"
+notes = "Easy Anti-Cheat."
+
+[[game]]
+id = "apex_legends"
+name = "Apex Legends"
+db_version = 1
+library_ids = ["steam:1172470"]
+anticheat = "protected"
+notes = "Easy Anti-Cheat."
+
+[[game]]
+id = "pubg"
+name = "PUBG: Battlegrounds"
+db_version = 1
+library_ids = ["steam:578080"]
+anticheat = "protected"
+notes = "BattlEye."
+
+[[game]]
+id = "rainbow_six_siege"
+name = "Rainbow Six Siege"
+db_version = 1
+library_ids = ["steam:359550"]
+anticheat = "protected"
+notes = "BattlEye."
+
+[[game]]
+id = "rust"
+name = "Rust"
+db_version = 1
+library_ids = ["steam:252490"]
+anticheat = "protected"
+notes = "Easy Anti-Cheat."
+
+[[game]]
+id = "elden_ring"
+name = "Elden Ring"
+db_version = 1
+library_ids = ["steam:1245620"]
+anticheat = "protected"
+notes = "Easy Anti-Cheat."
+
+[[game]]
+id = "gta_v"
+name = "Grand Theft Auto V"
+db_version = 1
+library_ids = ["steam:271590", "steam:3240220"]
+anticheat = "protected"
+notes = "BattlEye."
+
+[[game]]
+id = "call_of_duty"
+name = "Call of Duty"
+db_version = 1
+library_ids = ["steam:1938090"]
+anticheat = "protected"
+notes = "Ricochet (kernel)."
+
+[[game]]
+id = "the_finals"
+name = "THE FINALS"
+db_version = 1
+library_ids = ["steam:2073850"]
+anticheat = "protected"
+notes = "Easy Anti-Cheat."
+
+[[game]]
+id = "marvel_rivals"
+name = "Marvel Rivals"
+db_version = 1
+library_ids = ["steam:2767030"]
+anticheat = "protected"
+notes = "Kernel anti-cheat."

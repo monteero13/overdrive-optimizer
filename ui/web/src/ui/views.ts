@@ -1,6 +1,6 @@
 // Main views. Pure functions: (engine snapshot + local UI state) → HTML.
 import { date, has, pct, t, tweakTitle } from '../i18n/index.ts';
-import type { EngineSnapshot, GameCard, PlanItem, PlanPreview, StructuralIssue } from '../proto/types.ts';
+import type { EngineSnapshot, GameCard, PlanItem, PlanPreview, PreviewLine, StructuralIssue } from '../proto/types.ts';
 import { attr, esc, initials, tx } from './dom.ts';
 import type { UiState } from './state.ts';
 
@@ -125,6 +125,25 @@ function planView(s: EngineSnapshot, plan: PlanPreview | null, g: GameCard): str
   </section>`;
 }
 
+/** Expert preview: exactly which lines of which file would change (goals.md §5.5). */
+function previewDiff(lines: PreviewLine[]): string {
+  const byFile = new Map<string, PreviewLine[]>();
+  for (const l of lines) byFile.set(l.file, [...(byFile.get(l.file) ?? []), l]);
+  const rows = [...byFile]
+    .map(([file, ls]) => {
+      const body = ls
+        .map((l) => {
+          const key = `${l.section ? `[${l.section}] ` : ''}${l.key}`;
+          const del = l.from === null ? '' : `<div class="del">− ${esc(key)} = ${esc(l.from)}</div>`;
+          return `${del}<div class="add">+ ${esc(key)} = ${esc(l.to)}</div>`;
+        })
+        .join('');
+      return `<div class="file">${esc(file)}</div>${body}`;
+    })
+    .join('');
+  return `<div class="diff" aria-label="${tx('plan.preview')}"><span class="faint">${tx('plan.preview')}:</span>${rows}</div>`;
+}
+
 function planRow(i: PlanItem, expert: boolean): string {
   const historyCls = i.history === 'kept' ? 'good' : i.history === 'harmful' ? 'bad' : '';
   const chips = [
@@ -144,6 +163,7 @@ function planRow(i: PlanItem, expert: boolean): string {
       <div class="chips">${chips}</div>
       ${i.lock ? `<div class="lock-note">${tx(`lock.${i.lock}`)}</div>` : ''}
       ${expert ? `<div class="tech"><span class="faint">${tx('plan.technical')}:</span> ${esc(i.technical)}</div>` : ''}
+      ${expert && i.preview?.length ? previewDiff(i.preview) : ''}
     </div>
     <div class="blueprint" aria-label="${tx('plan.before')} → ${tx('plan.after')}">
       <div class="cell"><span class="lbl">${tx('plan.before')}</span>${tx(i.before)}</div>

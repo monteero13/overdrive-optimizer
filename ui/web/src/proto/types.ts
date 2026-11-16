@@ -203,6 +203,16 @@ export interface PlanItem {
   technical: string; // exact mechanism, shown in Expert mode
   before: string; // i18n key
   after: string; // i18n key
+  /** Expert only: config lines a file patch would change (absent when there are none). */
+  preview?: PreviewLine[];
+}
+
+export interface PreviewLine {
+  file: string;
+  section?: string;
+  key: string;
+  from: string | null; // null = the key is added
+  to: string;
 }
 
 export interface PlanPreview {

@@ -1,0 +1,67 @@
+# Per-game config database (goals.md §5.5) — see crates/overdrive-core/src/games.rs.
+#
+# Rules for every entry:
+# - only keys the game really reads (checked against the game's own options file);
+# - `evidence`: proven = the game itself documents the performance cost (tooltip/manual)
+#   or it is widely measured; disputed = plausible, must prove itself in the A/B test;
+# - `quality`: none | low | visible — what the player gives up. Easy mode only applies
+#   proven settings whose quality impact is none or low;
+# - `lower_is_faster`: numeric settings are only lowered, never raised (a player who
+#   already chose a lighter value keeps it).
+
+[[game]]
+id = "minecraft_java"
+name = "Minecraft: Java Edition"
+db_version = 1
+library_ids = ["minecraft:java"]
+anticheat = "none"
+cloud_sync = false
+# Minecraft rewrites options.txt whenever an option changes in-game.
+rewrites = "on_settings_change"
+# Runs under javaw.exe: never key anything (IFEO, driver profile) by exe name.
+shared_exe = true
+notes = "options.txt in the .minecraft folder (key:value, one per line)."
+
+[[game.file]]
+id = "options"
+path = '{appdata}\.minecraft\options.txt'
+format = "colon"
+
+[[game.setting]]
+id = "max_fps"
+file = "options"
+key = "maxFps"
+role = "frame_cap"
+value_format = "int"
+evidence = "proven"
+quality = "none"
+note = "Minecraft's own frame limiter (260 = unlimited). Used by the smart frame cap when there is no driver limiter for javaw.exe."
+
+[[game.setting]]
+id = "chunk_updates"
+file = "options"
+key = "prioritizeChunkUpdates"
+value = "0"
+lower_is_faster = true
+evidence = "proven"
+quality = "low"
+note = "Chunk Builder: 'Nearby' (2) and 'Player Affected' (1) build chunks on the render thread and the game's own tooltip warns they can hurt performance. 'Threaded' (0) builds them in parallel; at most a block change appears a frame later."
+
+[[game.setting]]
+id = "biome_blend"
+file = "options"
+key = "biomeBlendRadius"
+value = "1"
+lower_is_faster = true
+evidence = "proven"
+quality = "low"
+note = "Biome Blend: the game's tooltip says larger values cost performance when chunks load. 3x3 keeps smooth colour transitions."
+
+[[game.setting]]
+id = "entity_shadows"
+file = "options"
+key = "entityShadows"
+value = "false"
+evidence = "disputed"
+quality = "low"
+note = "Small round shadows under mobs and items. Cheap on most PCs: only kept if the A/B test shows a gain."

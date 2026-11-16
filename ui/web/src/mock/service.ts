@@ -380,6 +380,7 @@ export class MockService implements ServerEndpoint {
         technical: t.technical,
         before: `tw.${t.id}.before`,
         after: `tw.${t.id}.after`,
+        ...(easy || !t.preview ? {} : { preview: t.preview }),
       });
     }
     return { gameId, items, hiddenInEasy: hidden };

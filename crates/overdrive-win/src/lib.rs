@@ -8,6 +8,7 @@
 //!   GetLogicalProcessorInformationEx (P/E cores), registry (OS + gaming settings), Event Log.
 
 pub mod identity;
+pub mod nvapi;
 pub mod processes;
 pub mod sys;
 pub mod system_ops;

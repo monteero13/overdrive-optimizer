@@ -7,7 +7,8 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 
 use overdrive_core::engine::{
-    PriorityClass, ProcRef, RegData, RegRoot, StartType, SysError, SysResult, SystemOps,
+    DriverSetting, FileData, PriorityClass, ProcRef, RegData, RegRoot, StartType, SysError,
+    SysResult, SystemOps,
 };
 
 type RegKey = (RegRoot, String, String);
@@ -24,6 +25,10 @@ struct Layer {
     priority: HashMap<(u32, u64), PriorityClass>,
     eco: HashMap<(u32, u64), bool>,
     suspended: HashSet<(u32, u64)>,
+    /// Files by lowercase path: `None` = deleted in the overlay.
+    files: HashMap<String, Option<Vec<u8>>>,
+    /// Driver user values by (lowercase exe, setting): `None` = cleared in the overlay.
+    driver: HashMap<(String, DriverSetting), Option<u32>>,
 }
 
 pub struct OverlaySystem<S: SystemOps> {
@@ -46,7 +51,7 @@ impl<S: SystemOps> OverlaySystem<S> {
     /// How many simulated changes are currently "in effect" (diagnostics / tests).
     pub fn pending_changes(&self) -> usize {
         let l = self.layer.borrow();
-        l.reg.len() + l.services.len() + l.tasks.len() + usize::from(l.power.is_some())
+        l.reg.len() + l.services.len() + l.tasks.len() + l.files.len() + l.driver.len() + usize::from(l.power.is_some())
     }
 
     fn key_exists_real(&self, root: &RegRoot, key: &str) -> SysResult<bool> {
@@ -192,6 +197,54 @@ impl<S: SystemOps> SystemOps for OverlaySystem<S> {
             .borrow_mut()
             .suspended
             .remove(&(p.pid, p.start_time));
+        Ok(())
+    }
+    fn file_read(&self, path: &str) -> SysResult<Option<FileData>> {
+        let real = self.real.file_read(path)?;
+        match self.layer.borrow().files.get(&path.to_ascii_lowercase()) {
+            Some(Some(b)) => Ok(Some(FileData {
+                bytes: b.clone(),
+                readonly: real.is_some_and(|f| f.readonly),
+            })),
+            Some(None) => Ok(None),
+            None => Ok(real),
+        }
+    }
+    fn file_write_atomic(&self, path: &str, bytes: &[u8]) -> SysResult<()> {
+        if self.real.file_read(path)?.is_some_and(|f| f.readonly) {
+            return Err(SysError::AccessDenied(format!("{path} is read-only")));
+        }
+        self.layer
+            .borrow_mut()
+            .files
+            .insert(path.to_ascii_lowercase(), Some(bytes.to_vec()));
+        Ok(())
+    }
+    fn file_delete(&self, path: &str) -> SysResult<()> {
+        self.layer.borrow_mut().files.insert(path.to_ascii_lowercase(), None);
+        Ok(())
+    }
+    fn driver_profiles(&self) -> bool {
+        self.real.driver_profiles()
+    }
+    fn driver_get(&self, exe: &str, setting: DriverSetting) -> SysResult<Option<u32>> {
+        if let Some(v) = self.layer.borrow().driver.get(&(exe.to_ascii_lowercase(), setting)) {
+            return Ok(*v);
+        }
+        self.real.driver_get(exe, setting)
+    }
+    fn driver_set(&self, exe: &str, setting: DriverSetting, value: u32) -> SysResult<()> {
+        self.layer
+            .borrow_mut()
+            .driver
+            .insert((exe.to_ascii_lowercase(), setting), Some(value));
+        Ok(())
+    }
+    fn driver_clear(&self, exe: &str, setting: DriverSetting) -> SysResult<()> {
+        self.layer
+            .borrow_mut()
+            .driver
+            .insert((exe.to_ascii_lowercase(), setting), None);
         Ok(())
     }
 }

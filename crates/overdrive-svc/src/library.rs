@@ -146,6 +146,38 @@ pub fn scan_steam(steam_root: &Path) -> Vec<LibraryGame> {
     out
 }
 
+/// Minecraft: Java Edition (official launcher). The game runs under the launcher's bundled
+/// javaw.exe, so its "install dir" is that Java runtime folder: a javaw.exe from there is
+/// Minecraft, any other Java program is not.
+pub fn scan_minecraft(appdata: Option<&str>, local_appdata: Option<&str>) -> Vec<LibraryGame> {
+    let Some(appdata) = appdata else { return vec![] };
+    let game_dir = Path::new(appdata).join(".minecraft");
+    if !game_dir.join("options.txt").is_file() && !game_dir.join("versions").is_dir() {
+        return vec![];
+    }
+    let mut runtimes = Vec::new();
+    if let Some(local) = local_appdata {
+        // Microsoft Store / Xbox app launcher.
+        runtimes.push(
+            Path::new(local)
+                .join(r"Packages\Microsoft.4297127D64EC6_8wekyb3d8bbwe\LocalCache\Local\runtime"),
+        );
+    }
+    runtimes.push(game_dir.join("runtime")); // legacy launcher
+    runtimes.push(PathBuf::from(r"C:\Program Files (x86)\Minecraft Launcher\runtime"));
+    let Some(runtime) = runtimes.into_iter().find(|p| p.is_dir()) else {
+        return vec![];
+    };
+    vec![LibraryGame {
+        id: "minecraft:java".into(),
+        name: "Minecraft: Java Edition".into(),
+        launcher: "minecraft",
+        install_entries: install_entries(&game_dir),
+        install_dir: runtime.display().to_string(),
+        exe_hint: None,
+    }]
+}
+
 pub fn scan_epic(manifests: &Path) -> Vec<LibraryGame> {
     let mut out = Vec::new();
     let Ok(rd) = fs::read_dir(manifests) else {
@@ -270,5 +302,22 @@ mod tests {
         assert!(is_helper_exe("unins000.exe"));
         assert!(!is_helper_exe("cs2.exe"));
         assert!(!is_helper_exe("FortniteClient-Win64-Shipping.exe"));
+    }
+
+    #[test]
+    fn finds_minecraft_java_and_its_bundled_runtime() {
+        let root = std::env::temp_dir().join(format!("overdrive-mc-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        let (appdata, local) = (root.join("Roaming"), root.join("Local"));
+        assert!(scan_minecraft(appdata.to_str(), local.to_str()).is_empty(), "not installed");
+        fs::create_dir_all(appdata.join(".minecraft")).unwrap();
+        fs::write(appdata.join(".minecraft").join("options.txt"), "maxFps:260\n").unwrap();
+        let rt = local.join(r"Packages\Microsoft.4297127D64EC6_8wekyb3d8bbwe\LocalCache\Local\runtime");
+        fs::create_dir_all(&rt).unwrap();
+        let v = scan_minecraft(appdata.to_str(), local.to_str());
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].id, "minecraft:java");
+        assert_eq!(v[0].install_dir, rt.display().to_string(), "a javaw.exe from here is Minecraft");
+        let _ = fs::remove_dir_all(&root);
     }
 }

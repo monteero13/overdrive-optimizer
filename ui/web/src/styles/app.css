@@ -607,6 +607,22 @@ h3 {
   color: var(--text-3);
   word-break: break-word;
 }
+.plan-row .diff {
+  margin-top: 6px;
+  font: 11.5px/1.45 var(--mono);
+  color: var(--text-3);
+  word-break: break-word;
+}
+.plan-row .diff .file {
+  margin-top: 2px;
+  color: var(--text-2);
+}
+.plan-row .diff .del {
+  color: var(--bad);
+}
+.plan-row .diff .add {
+  color: var(--good);
+}
 .blueprint {
   display: grid;
   grid-template-columns: 1fr 22px 1fr;

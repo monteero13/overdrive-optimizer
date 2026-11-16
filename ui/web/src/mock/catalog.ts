@@ -1,5 +1,5 @@
 // Mock subset of catalog/*.toml (goals.md §5.3). Same fields the real catalog will have.
-import type { Bottleneck, Evidence, Risk, Scope } from '../proto/types.ts';
+import type { Bottleneck, Evidence, PreviewLine, Risk, Scope } from '../proto/types.ts';
 
 export interface MockTweak {
   id: string;
@@ -14,6 +14,8 @@ export interface MockTweak {
   /** Simulated true effect on this mock PC (% change of 1% low). Unknown to the UI until measured. */
   trueEffect: number;
   persistentCandidate: boolean;
+  /** Expert preview of a config file patch. */
+  preview?: PreviewLine[];
 }
 
 export const CATALOG: MockTweak[] = [
@@ -138,6 +140,22 @@ export const CATALOG: MockTweak[] = [
     appliesTo: 'all',
     trueEffect: 0.2,
     persistentCandidate: false,
+  },
+  {
+    id: 'unreal_engine_ini',
+    scope: 'persistent',
+    risk: 'medium',
+    evidence: 'disputed',
+    requiresReboot: false,
+    anticheatSafe: false,
+    technical: '%LOCALAPPDATA%\\<Project>\\Saved\\Config\\Windows\\Engine.ini [SystemSettings]',
+    appliesTo: 'all',
+    trueEffect: 2,
+    persistentCandidate: true,
+    preview: [
+      { file: 'C:\\Users\\you\\AppData\\Local\\Phoenix\\Saved\\Config\\WindowsNoEditor\\Engine.ini', section: 'SystemSettings', key: 'r.MotionBlurQuality', from: '4', to: '0' },
+      { file: 'C:\\Users\\you\\AppData\\Local\\Phoenix\\Saved\\Config\\WindowsNoEditor\\Engine.ini', section: 'SystemSettings', key: 'r.SceneColorFringeQuality', from: null, to: '0' },
+    ],
   },
 ];
 

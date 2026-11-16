@@ -5,6 +5,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use overdrive_core::build_profile;
 use overdrive_core::engine::RegRoot;
+use overdrive_core::games::UserDirs;
 use overdrive_core::profile::HardwareProfile;
 use overdrive_core::safety::ProcInfo;
 use overdrive_core::source::RawStabilityEvents;
@@ -71,6 +72,8 @@ impl Platform for WinPlatform {
         let epic = PathBuf::from(pd).join(r"Epic\EpicGamesLauncher\Data\Manifests");
         let mut v = library::scan_steam(&steam);
         v.extend(library::scan_epic(&epic));
+        let d = self.user_dirs(user);
+        v.extend(library::scan_minecraft(d.appdata.as_deref(), d.local_appdata.as_deref()));
         v.sort_by_key(|a| a.name.to_lowercase());
         v
     }
@@ -90,6 +93,24 @@ impl Platform for WinPlatform {
             }
         }
         RegRoot::CurrentUser
+    }
+    fn user_dirs(&mut self, user: &RegRoot) -> UserDirs {
+        // "Shell Folders" holds the expanded paths (and follows OneDrive/folder redirection).
+        let h = hive(user);
+        let get = |name: &str| {
+            sys::reg_string(
+                Root::User,
+                &h,
+                r"Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders",
+                name,
+            )
+            .filter(|p| !p.is_empty())
+        };
+        UserDirs {
+            appdata: get("AppData"),
+            local_appdata: get("Local AppData"),
+            documents: get("Personal"),
+        }
     }
     fn reboot_to_firmware(&mut self) -> Result<(), String> {
         sys::reboot_to_firmware().map_err(|e| e.to_string())

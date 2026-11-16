@@ -6,11 +6,59 @@
 | `overdrive-win` | Implementación real para Windows 10/11. Es el único crate con `unsafe` (`src/sys.rs`, `src/telemetry.rs`, `src/system_ops.rs`, `src/processes.rs`). Incluye el binario `overdrive-probe`. |
 
 ```bash
-cargo test --workspace                          # 80 tests (perfil, muestreador, registro, tareas y procesos reales incluidos)
+cargo test --workspace                          # 121 tests (perfil, muestreador, registro, tareas, procesos, archivos y NVAPI reales incluidos)
 cargo run --release -p overdrive-win --bin overdrive-probe -- --stability 7
 cargo run -p overdrive-core --example gen_traces              # regenera la biblioteca de trazas
 cargo run -p overdrive-core --example inspect_trace -- <nombre>  # veredicto ventana a ventana
 ```
+
+## Fase 7: parcheador de configuración de juegos y perfiles de driver
+
+### Piezas
+
+| Pieza | Dónde | Qué hace |
+|---|---|---|
+| Edición de texto | `core::config` | Formatos `ini` (`[Sección]` + `clave=valor`, Unreal y la mayoría de juegos de PC) y `colon` (`clave:valor`, Minecraft). Detecta la codificación por el BOM (UTF-8, UTF-8 con BOM, UTF-16 LE/BE) y la conserva. Respeta el salto de línea de cada línea y el espaciado alrededor del `=`. Solo cambia el valor de las claves pedidas. Es **determinista**: con la misma entrada produce exactamente los mismos bytes. Si un archivo no es texto válido en su codificación, lo rechaza: nunca lo "arregla". |
+| Primitiva `FilePatch` | `core::engine` | Los bytes originales van **dentro del journal** (base64, máximo 1 MiB) antes de escribir nada, con la misma garantía write-ahead que el registro. Nunca crea archivos y se niega a tocar los de solo lectura. Al revertir: si el archivo sigue siendo exactamente lo que escribimos, restaura el original **byte a byte**. Si el juego lo reescribió, deshace solo nuestras claves y conserva lo que el jugador cambió dentro del juego. Si el jugador cambió nuestras claves, son suyas y no se tocan. |
+| Primitiva `DriverSetting` | `core::engine`, `win::nvapi` | Ajuste de driver por ejecutable, independiente del fabricante: `MaxFrameRate` (FRL_FPS) y `PowerMode` (PREFERRED_PSTATE). Si el exe no tiene perfil, se crea `Overdrive - <exe>`, y se borra al revertir si queda vacío. No se pisa un valor que cambió otro programa. |
+| NVAPI DRS | `win::nvapi` | Carga dinámica de `nvapi64.dll` (sin SDK). IDs de función, estructuras y códigos tomados de las cabeceras públicas de NVIDIA; los tamaños se comprueban **en tiempo de compilación** (esa comprobación cazó un error de cálculo en la estructura V4). Cada operación abre y cierra su propia sesión DRS. |
+| Escritura atómica | `win::system_ops::files` | Archivo temporal en la misma carpeta, `sync_all` y `ReplaceFileW`, que conserva atributos, ACL y fecha de creación. Si el destino no existe, `MoveFileExW(WRITE_THROUGH)`. |
+| Base de datos por juego | `catalog/games/*.toml` + `core::games` | Por juego: rutas (`{appdata}`, `{localappdata}`, `{documents}`, `{install}`), claves que el juego lee de verdad, valor seguro, impacto visual (`none`/`low`/`visible`), evidencia, si la nube o el juego reescriben el archivo y si usa un ejecutable compartido. `lower_is_faster`: un valor numérico solo se baja, nunca se sube. **Primeras entradas:** Minecraft Java (`options.txt`) y 13 títulos protegidos (CS2, Fortnite, Rocket League, Apex, PUBG…). |
+| Tweaks nuevos | `catalog/tweaks.toml` | `game_config` (ajustes por juego; en modo Fácil solo los probados con impacto visual nulo o bajo), `driver_power` (NVIDIA a máximo rendimiento solo para ese exe, `version_dependent`), `unreal_engine_ini` (regla genérica de Unreal, **solo Experto**, con vista previa del diff) y `frame_cap`, que ya funciona. |
+| Limitador inteligente | `catalog::frame_cap` | Solo si la medición base dice que el juego está limitado por la CPU. Límite = 1 % low × 0,97, redondeado a múltiplos de 5 para que sea estable, y solo si queda ≥ 60 FPS y deja margen. Orden: limitador del driver → limitador del propio juego (base de datos) → recomendar el del juego. Se juzga con la métrica nueva `pacing` (dispersión del frametime), no con los FPS medios. |
+| Minecraft | `svc::library` | Se detecta por `%APPDATA%\.minecraft`, y su "carpeta de instalación" es el Java que trae el launcher: un `javaw.exe` de ahí es Minecraft y cualquier otro Java no. Como `javaw.exe` es compartido, IFEO y los perfiles de driver se niegan (`shared_executable`) y el límite de FPS va por `options.txt`. |
+| Vista previa | `catalog::preview`, `PlanItem.preview`, UI | En modo Experto, cada parche muestra archivo, clave, valor actual → valor nuevo. |
+
+### Garantías y cómo se demuestran
+
+| Garantía | Test |
+|---|---|
+| **El archivo original vuelve idéntico byte a byte** (BOM, CRLF, última línea sin salto) | `apply_then_revert_restores_everything_exactly` y `minecraft_easy_mode_patches_only_proven_low_impact_settings` (fake) · `real_file_patch_is_atomic_and_reverts_byte_identical` (disco real) |
+| **Matar el proceso en cualquier punto → recuperación completa**, también con parches de archivo y ajustes de driver | Los tests de "matar en cada punto" de la Fase 5, ahora con 11 acciones (46 puntos al aplicar y 22 al revertir) |
+| El juego reescribe el archivo durante la partida → se conserva lo que cambió el jugador | `the_game_rewriting_the_file_mid_session_keeps_the_players_changes`, `values_the_player_changed_after_us_are_theirs` |
+| Solo lectura respetado: ni se escribe ni se quita el atributo | `read_only_files_are_respected` (fake y disco real) |
+| **Los títulos protegidos nunca se tocan**, aunque la detección de anti-cheat falle en la máquina | `protected_titles_are_never_touched`: todos los tweaks × todos los títulos protegidos × Fácil/Experto, con todos los archivos presentes · `the_orchestrator_never_patches_a_protected_game_end_to_end` |
+| El ajuste de driver vuelve exactamente a lo que había, y no se pisa un cambio ajeno | `driver_settings_revert_to_exactly_what_was_there` |
+| **NVAPI real**: crear perfil → FPS máximos 117 + máximo rendimiento → revertir → el perfil desaparece | `real_nvidia_driver_profile_round_trip` (GTX 1660 SUPER, driver 621.14, sin administrador) |
+| Con tu `options.txt` real: plan correcto y el archivo no cambia al planificar | `real_minecraft_plan_is_previewed_without_touching_anything`: Fácil propone `prioritizeChunkUpdates` 2→0 y `biomeBlendRadius` 2→1; Experto además `entityShadows` |
+
+### Decisiones
+
+- **Copia del original dentro del journal**, en vez de la tabla `file_backups` + carpeta de copias prevista en la Fase 1. Así la copia es durable en el mismo commit que el paso: no hay una segunda escritura que sincronizar ni copias huérfanas. La tabla queda sin uso.
+- **Protegido = cualquier anti-cheat**, también los de modo usuario como VAC. Basta con que la base de datos **o** la detección digan que un juego está protegido para que sus archivos no se toquen. Los ajustes a nivel de sistema que no tocan el juego (driver, energía, GPU preferida) siguen permitidos.
+- **No se crean archivos de configuración.** Si un juego no tiene `Engine.ini`, la regla de Unreal no se aplica.
+
+### Criterio de terminado de la Fase 7
+
+- [x] Formato de la base de datos por juego + primeras entradas
+- [x] Parcheador atómico (§5.5): copia del original, escritura atómica, codificación y saltos de línea conservados, detección de reescritura por el juego, solo lectura respetado
+- [x] Integración con NVAPI DRS, probada en el driver real
+- [x] Los originales vuelven idénticos byte a byte al revertir
+- [x] Los títulos protegidos nunca se tocan
+- [ ] **Pendiente:**
+  - **ADLX (AMD):** no implementado. No hay una GPU AMD para probarlo, y llamar a una API de drivers sin probarla puede tumbar el servicio. Con AMD, el limitador usa el del juego (si está en la base de datos) o lo recomienda. Los ajustes de driver dicen "Necesita una gráfica NVIDIA".
+  - **Base de datos pequeña:** solo Minecraft tiene ajustes. Cada juego nuevo necesita comprobar sus claves reales; lo ideal es añadir los que usen tus amigos.
+  - La vista previa del diff está probada con el motor simulado y por tipos, pero no se ha revisado a ojo en la app.
 
 ## Fase 6: catálogo, protocolo A/B, orquestador y Drift Guardian
 
@@ -42,7 +90,7 @@ cargo run -p overdrive-core --example inspect_trace -- <nombre>  # veredicto ven
 - [x] Lo que no aporta se revierte solo y se informa; lo que empeora queda vetado en esa máquina
 - [x] Una actualización simulada que deshace ajustes se detecta y se repara
 - [ ] **Pendiente:**
-  - El limitador de FPS (ítem 2) espera a los perfiles de driver de la Fase 7.
+  - ~~El limitador de FPS (ítem 2) espera a los perfiles de driver de la Fase 7.~~ Hecho en la Fase 7.
   - HAGS necesita reiniciar: se ofrece a mano en modo Experto, y falta el flujo de medición "antes/después del reinicio".
   - El servicio que conecta todo esto con la interfaz (IPC real) aún no existe.
 

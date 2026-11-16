@@ -68,8 +68,36 @@ pub struct ProcRef {
     pub image: String,
 }
 
+/// Vendor-neutral per-executable driver settings (NVAPI DRS today; ADLX would map here too).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DriverSetting {
+    /// Driver frame rate limiter (NVIDIA "Max Frame Rate", FRL_FPS). 0 = off.
+    MaxFrameRate,
+    /// NVIDIA "Power management mode" (PREFERRED_PSTATE). 1 = prefer maximum performance.
+    PowerMode,
+}
+
+/// Desired driver state for one setting of one executable's profile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DriverTarget {
+    Set(u32),
+    /// No user value: back to what the driver's own profile says.
+    Clear,
+}
+
+/// A file's contents and the attribute we must respect.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileData {
+    pub bytes: Vec<u8>,
+    pub readonly: bool,
+}
+
+/// Game config files bigger than this are not configs: refuse instead of journaling them.
+pub const MAX_PATCH_FILE: usize = 1024 * 1024;
+
 /// The closed set of things the engine knows how to change.
-/// (Scheduled tasks, driver profiles and file patches arrive with Phases 6–7.)
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(
     tag = "kind",
@@ -107,6 +135,19 @@ pub enum Action {
         path: String,
         enabled: bool,
     },
+    /// One setting in the driver profile of an executable (matched by file name).
+    DriverSetting {
+        exe: String,
+        setting: DriverSetting,
+        target: DriverTarget,
+    },
+    /// Set keys in a game config file (absolute path), preserving everything else.
+    /// The original bytes go into the journal before anything is written.
+    FilePatch {
+        path: String,
+        format: crate::config::ConfigFormat,
+        edits: Vec<crate::config::ConfigEdit>,
+    },
 }
 
 impl Action {
@@ -117,6 +158,8 @@ impl Action {
             Action::ServiceStart { .. } => "service_start",
             Action::PowerScheme { .. } => "power_scheme",
             Action::ScheduledTask { .. } => "scheduled_task",
+            Action::DriverSetting { .. } => "driver_setting",
+            Action::FilePatch { .. } => "file_patch",
             Action::ProcessPriority { .. } => "process_priority",
             Action::ProcessEcoQos { .. } => "process_eco_qos",
             Action::ProcessSuspend { .. } => "process_suspend",
@@ -180,4 +223,21 @@ pub trait SystemOps {
     fn set_proc_eco_qos(&self, p: &ProcRef, on: bool) -> SysResult<()>;
     fn suspend(&self, p: &ProcRef) -> SysResult<()>;
     fn resume(&self, p: &ProcRef) -> SysResult<()>;
+
+    /// `None` = the file doesn't exist.
+    fn file_read(&self, path: &str) -> SysResult<Option<FileData>>;
+    /// Atomic replace: temp file in the same folder, flushed, then renamed over the target
+    /// (keeps the target's attributes and ACL). Must refuse read-only targets.
+    fn file_write_atomic(&self, path: &str, bytes: &[u8]) -> SysResult<()>;
+    /// Deleting a file that doesn't exist is success.
+    fn file_delete(&self, path: &str) -> SysResult<()>;
+
+    /// Per-executable driver profiles are available (NVIDIA driver with DRS support).
+    fn driver_profiles(&self) -> bool;
+    /// The *user* value of `setting` in the profile `exe` belongs to (`None` = inherited/predefined).
+    fn driver_get(&self, exe: &str, setting: DriverSetting) -> SysResult<Option<u32>>;
+    /// Creates an "Overdrive - <exe>" profile when the exe has none.
+    fn driver_set(&self, exe: &str, setting: DriverSetting, value: u32) -> SysResult<()>;
+    /// Removes the user value; also removes an "Overdrive - <exe>" profile left empty.
+    fn driver_clear(&self, exe: &str, setting: DriverSetting) -> SysResult<()>;
 }

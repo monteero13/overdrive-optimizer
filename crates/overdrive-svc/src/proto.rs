@@ -262,6 +262,9 @@ pub struct PlanItem {
     pub technical: String,
     pub before: String,
     pub after: String,
+    /// Expert only: the config lines a file patch would change.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub preview: Vec<overdrive_core::catalog::PreviewLine>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]

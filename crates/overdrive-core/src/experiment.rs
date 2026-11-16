@@ -211,6 +211,8 @@ pub fn compare(
 pub fn metric_value(m: &SessionMetrics, measure: Measure) -> f64 {
     match measure {
         Measure::Frametime | Measure::None => m.low_1,
+        // A frame cap trades average FPS for evenness: judge it by frametime spread.
+        Measure::Pacing => m.stdev_ms,
         Measure::BackgroundNoise => {
             if m.gameplay_secs > 0.0 {
                 m.stutters as f64 / (m.gameplay_secs / 60.0)
@@ -306,7 +308,7 @@ pub fn next(
         };
     }
     let measure = measure_of(cur);
-    let higher = measure != Measure::BackgroundNoise;
+    let higher = !matches!(measure, Measure::BackgroundNoise | Measure::Pacing);
     let bv: Vec<f64> = base
         .iter()
         .map(|p| metric_value(&p.metrics, measure))

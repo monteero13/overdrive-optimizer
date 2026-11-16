@@ -22,6 +22,7 @@ impl Platform for Quiet {
     fn library(&mut self, _: &RegRoot) -> Vec<LibraryGame> { vec![] }
     fn capture(&mut self, _: u32) -> Result<Box<dyn Capture>, String> { Err("none".into()) }
     fn user_root(&mut self) -> RegRoot { RegRoot::CurrentUser }
+    fn user_dirs(&mut self, _: &RegRoot) -> overdrive_core::games::UserDirs { Default::default() }
     fn reboot_to_firmware(&mut self) -> Result<(), String> { Err("no".into()) }
     fn stability_events(&mut self, _: i64) -> Option<RawStabilityEvents> { None }
     fn now_ms(&self) -> i64 { 1_760_000_000_000 }

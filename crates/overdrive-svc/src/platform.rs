@@ -2,6 +2,7 @@
 //! `win::WinPlatform` is the real one; tests drive the whole service with a scripted fake.
 
 use overdrive_core::engine::RegRoot;
+use overdrive_core::games::UserDirs;
 use overdrive_core::profile::HardwareProfile;
 use overdrive_core::safety::ProcInfo;
 use overdrive_core::source::RawStabilityEvents;
@@ -40,6 +41,8 @@ pub trait Platform {
     fn capture(&mut self, pid: u32) -> Result<Box<dyn Capture>, String>;
     /// Hive of the interactive user (`HKEY_USERS\<SID>` when running as LocalSystem).
     fn user_root(&mut self) -> RegRoot;
+    /// That user's AppData / LocalAppData / Documents (never the service's own).
+    fn user_dirs(&mut self, user: &RegRoot) -> UserDirs;
     fn reboot_to_firmware(&mut self) -> Result<(), String>;
     fn stability_events(&mut self, since_ms: i64) -> Option<RawStabilityEvents>;
     fn now_ms(&self) -> i64;

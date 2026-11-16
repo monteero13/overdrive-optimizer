@@ -52,6 +52,13 @@ impl SystemOps for Shared {
     fn set_proc_eco_qos(&self, p: &ProcRef, on: bool) -> SysResult<()> { self.0.set_proc_eco_qos(p, on) }
     fn suspend(&self, p: &ProcRef) -> SysResult<()> { self.0.suspend(p) }
     fn resume(&self, p: &ProcRef) -> SysResult<()> { self.0.resume(p) }
+    fn file_read(&self, p: &str) -> SysResult<Option<overdrive_core::engine::FileData>> { self.0.file_read(p) }
+    fn file_write_atomic(&self, p: &str, b: &[u8]) -> SysResult<()> { self.0.file_write_atomic(p, b) }
+    fn file_delete(&self, p: &str) -> SysResult<()> { self.0.file_delete(p) }
+    fn driver_profiles(&self) -> bool { self.0.driver_profiles() }
+    fn driver_get(&self, e: &str, s: overdrive_core::engine::DriverSetting) -> SysResult<Option<u32>> { self.0.driver_get(e, s) }
+    fn driver_set(&self, e: &str, s: overdrive_core::engine::DriverSetting, v: u32) -> SysResult<()> { self.0.driver_set(e, s, v) }
+    fn driver_clear(&self, e: &str, s: overdrive_core::engine::DriverSetting) -> SysResult<()> { self.0.driver_clear(e, s) }
 }
 
 fn fproc(pid: u32, image: &str) -> (u32, FakeProc) {
@@ -168,6 +175,9 @@ impl Platform for FakePlatform {
         self.0.captures.set(self.0.captures.get() + 1);
         let gain = true_gain(&self.0.sys.snapshot());
         Ok(Box::new(FakeCapture(frames(&mut self.0.rng.borrow_mut(), gain))))
+    }
+    fn user_dirs(&mut self, _: &RegRoot) -> overdrive_core::games::UserDirs {
+        Default::default()
     }
     fn user_root(&mut self) -> RegRoot {
         RegRoot::CurrentUser

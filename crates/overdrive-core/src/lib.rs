@@ -8,9 +8,11 @@
 
 pub mod catalog;
 pub mod coach;
+pub mod config;
 pub mod drift;
 pub mod engine;
 pub mod experiment;
+pub mod games;
 pub mod issues;
 pub mod memspeed;
 pub mod profile;

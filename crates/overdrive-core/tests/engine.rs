@@ -8,8 +8,10 @@ use std::path::PathBuf;
 use overdrive_core::engine::fake::{FakeProc, FakeState, FakeSystem, Fault};
 use overdrive_core::engine::journal::{Journal, StepState, TxKind, TxState};
 use overdrive_core::engine::tx::{CrashPoint, Engine, PlannedAction, TxError};
+use overdrive_core::config::{ConfigEdit, ConfigFormat};
 use overdrive_core::engine::{
-    Action, PriorityClass, ProcRef, RegData, RegRoot, RegTarget, StartType, SystemOps,
+    Action, DriverSetting, DriverTarget, PriorityClass, ProcRef, RegData, RegRoot, RegTarget,
+    StartType, SystemOps,
 };
 use overdrive_core::safety::{
     anticheat_status, AcKind, AntiCheat, BackgroundDecision, GameInfo, NeverTouch, ProcInfo,
@@ -70,6 +72,13 @@ fn original() -> FakeState {
         RegData::Dword(7),
     );
     s.services.insert("DiagTrack".into(), StartType::Automatic);
+    // A UTF-8-with-BOM, CRLF game config (must come back byte-identical).
+    s.files
+        .insert(OPTIONS.to_ascii_lowercase(), (options_bytes(), false));
+    // Driver: another exe already has a user value, the game has none.
+    s.driver_profiles = true;
+    s.driver
+        .insert(("other.exe".into(), DriverSetting::MaxFrameRate), 144);
     s.procs.extend([
         proc_state(100, "chrome.exe"),
         proc_state(200, "GoogleUpdate.exe"),
@@ -131,11 +140,58 @@ fn full_plan() -> Vec<PlannedAction> {
             },
         ),
         PlannedAction::new(
+            "frame_cap",
+            Action::DriverSetting {
+                exe: "game.exe".into(),
+                setting: DriverSetting::MaxFrameRate,
+                target: DriverTarget::Set(117),
+            },
+        ),
+        PlannedAction::new(
+            "driver_clear",
+            Action::DriverSetting {
+                exe: "other.exe".into(),
+                setting: DriverSetting::MaxFrameRate,
+                target: DriverTarget::Clear,
+            },
+        ),
+        PlannedAction::new(
+            "game_config",
+            Action::FilePatch {
+                path: OPTIONS.into(),
+                format: ConfigFormat::Ini,
+                edits: options_edits(),
+            },
+        ),
+        PlannedAction::new(
             "bg_suspend",
             Action::ProcessSuspend {
                 process: p(200, "GoogleUpdate.exe"),
             },
         ),
+    ]
+}
+
+const OPTIONS: &str = r"C:\Users\a\AppData\Local\Game\Saved\Config\Windows\Engine.ini";
+
+fn options_bytes() -> Vec<u8> {
+    let mut b = vec![0xEF, 0xBB, 0xBF];
+    b.extend_from_slice(b"[SystemSettings]\r\nr.MotionBlurQuality = 4\r\n\r\n[Core.Log]\r\nLogX=Off\r\n");
+    b
+}
+
+fn options_edits() -> Vec<ConfigEdit> {
+    vec![
+        ConfigEdit {
+            section: Some("SystemSettings".into()),
+            key: "r.MotionBlurQuality".into(),
+            value: "0".into(),
+        },
+        ConfigEdit {
+            section: Some("SystemSettings".into()),
+            key: "r.SceneColorFringeQuality".into(),
+            value: "0".into(),
+        },
     ]
 }
 
@@ -182,7 +238,7 @@ fn apply_then_revert_restores_everything_exactly() {
 
     let r = e.revert(tx).unwrap();
     assert!(r.ok(), "{r:?}");
-    assert_eq!(r.reverted, 8);
+    assert_eq!(r.reverted, full_plan().len());
     assert_eq!(sys.snapshot(), original(), "byte-identical to the original");
     assert!(j
         .steps(tx)

@@ -107,6 +107,7 @@ fn game() -> GameTarget {
         exe_path: EXE.into(),
         exe_name: EXE_NAME.into(),
         anticheat: AntiCheat::Kernel(AcKind::EasyAntiCheat),
+        install_dir: String::new(),
     }
 }
 
@@ -327,6 +328,7 @@ fn builders_read_state_and_respect_conditions() {
     let g = game();
     let policy = SafetyPolicy::default();
     let caps: Vec<String> = vec![];
+    let dirs = overdrive_core::games::UserDirs::default();
     let ctx = PlanContext {
         game: &g,
         hw: &hw,
@@ -335,6 +337,10 @@ fn builders_read_state_and_respect_conditions() {
         policy: &policy,
         capabilities: &caps,
         now_hour: 20,
+        games: &c.games,
+        dirs: &dirs,
+        baseline: None,
+        expert: false,
     };
     assert!(
         matches!(c.build("hybrid_gpu", &ctx, &fake).unwrap(), Build::Actions(ref a) if a.len() == 1)
@@ -346,7 +352,7 @@ fn builders_read_state_and_respect_conditions() {
     );
     assert_eq!(
         c.build("frame_cap", &ctx, &fake).unwrap(),
-        Build::NotApplicable("needs_driver_profiles")
+        Build::NotApplicable("needs_baseline")
     );
     assert_eq!(
         c.build("background_isolation", &ctx, &fake).unwrap(),
@@ -381,6 +387,10 @@ fn builders_read_state_and_respect_conditions() {
         policy: &policy,
         capabilities: &caps,
         now_hour: 20,
+        games: &c.games,
+        dirs: &dirs,
+        baseline: None,
+        expert: false,
     };
     assert_eq!(
         c.build("power_session", &ctx3, &fake).unwrap(),
@@ -402,7 +412,7 @@ fn full_ab_loop_discovers_every_true_effect() {
     assert_eq!(ex["game_mode"], Exclusion::AlreadyOptimal);
     assert_eq!(
         ex["frame_cap"],
-        Exclusion::NotApplicable("needs_driver_profiles".into())
+        Exclusion::NotApplicable("needs_baseline".into())
     );
     assert_eq!(ex["hags"], Exclusion::NeedsReboot);
 

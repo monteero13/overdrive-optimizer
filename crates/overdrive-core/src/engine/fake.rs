@@ -4,7 +4,10 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
-use super::{PriorityClass, ProcRef, RegData, RegRoot, StartType, SysError, SysResult, SystemOps};
+use super::{
+    DriverSetting, FileData, PriorityClass, ProcRef, RegData, RegRoot, StartType, SysError,
+    SysResult, SystemOps,
+};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FakeProc {
@@ -27,6 +30,12 @@ pub struct FakeState {
     pub power_schemes: BTreeSet<String>,
     pub procs: BTreeMap<u32, FakeProc>,
     pub tasks: BTreeMap<String, bool>,
+    /// Files by lowercase path: (bytes, read-only).
+    pub files: BTreeMap<String, (Vec<u8>, bool)>,
+    /// Per-exe driver user values (lowercase exe).
+    pub driver: BTreeMap<(String, DriverSetting), u32>,
+    /// The machine has a driver with per-exe profiles (NVIDIA).
+    pub driver_profiles: bool,
 }
 
 impl FakeState {
@@ -281,5 +290,61 @@ impl SystemOps for FakeSystem {
                 fp.suspended = false
             }
         })
+    }
+    fn file_read(&self, path: &str) -> SysResult<Option<FileData>> {
+        self.enter("file_read")?;
+        Ok(self
+            .state
+            .borrow()
+            .files
+            .get(&path.to_ascii_lowercase())
+            .map(|(b, ro)| FileData { bytes: b.clone(), readonly: *ro }))
+    }
+    fn file_write_atomic(&self, path: &str, bytes: &[u8]) -> SysResult<()> {
+        // Atomic like the real one: either the whole new content or nothing.
+        if self.enter("file_write")? {
+            let mut st = self.state.borrow_mut();
+            let k = path.to_ascii_lowercase();
+            if st.files.get(&k).is_some_and(|(_, ro)| *ro) {
+                return Err(SysError::AccessDenied(format!("{path} is read-only")));
+            }
+            st.files.insert(k, (bytes.to_vec(), false));
+        }
+        Ok(())
+    }
+    fn file_delete(&self, path: &str) -> SysResult<()> {
+        if self.enter("file_delete")? {
+            self.state.borrow_mut().files.remove(&path.to_ascii_lowercase());
+        }
+        Ok(())
+    }
+    fn driver_profiles(&self) -> bool {
+        self.state.borrow().driver_profiles
+    }
+    fn driver_get(&self, exe: &str, setting: DriverSetting) -> SysResult<Option<u32>> {
+        self.enter("driver_read")?;
+        let st = self.state.borrow();
+        if !st.driver_profiles {
+            return Err(SysError::NotFound("driver profiles".into()));
+        }
+        Ok(st.driver.get(&(exe.to_ascii_lowercase(), setting)).copied())
+    }
+    fn driver_set(&self, exe: &str, setting: DriverSetting, value: u32) -> SysResult<()> {
+        if self.enter("driver_write")? {
+            self.state
+                .borrow_mut()
+                .driver
+                .insert((exe.to_ascii_lowercase(), setting), value);
+        }
+        Ok(())
+    }
+    fn driver_clear(&self, exe: &str, setting: DriverSetting) -> SysResult<()> {
+        if self.enter("driver_write")? {
+            self.state
+                .borrow_mut()
+                .driver
+                .remove(&(exe.to_ascii_lowercase(), setting));
+        }
+        Ok(())
     }
 }

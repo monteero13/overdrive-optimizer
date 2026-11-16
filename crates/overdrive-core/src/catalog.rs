@@ -6,9 +6,12 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::config::{self, ConfigEdit, ConfigFormat};
 use crate::engine::{
-    Action, RegData, RegRoot, RegTarget, StartType, SysError, SysResult, SystemOps,
+    Action, DriverSetting, DriverTarget, RegData, RegRoot, RegTarget, StartType, SysError,
+    SysResult, SystemOps,
 };
+use crate::games::{self, GameDb, Role, UserDirs};
 use crate::profile::{HardwareProfile, PowerSource};
 use crate::safety::{AntiCheat, ProcInfo, SafetyPolicy};
 
@@ -49,6 +52,8 @@ pub enum Evidence {
 pub enum Measure {
     Frametime,
     BackgroundNoise,
+    /// Frametime spread (stdev, lower is better): for changes that trade average FPS for evenness.
+    Pacing,
     None,
 }
 
@@ -85,6 +90,28 @@ struct CatalogFile {
 #[derive(Debug, Clone)]
 pub struct Catalog {
     pub tweaks: Vec<TweakMeta>,
+    /// Per-game config database (catalog/games/*.toml).
+    pub games: GameDb,
+}
+
+/// What the baseline sessions of a game say (no tweaks active).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Baseline {
+    pub avg_fps: f64,
+    pub low_1: f64,
+    /// Most baseline sessions were CPU-bound (or mixed).
+    pub cpu_bound: bool,
+    pub runs: usize,
+}
+
+impl Baseline {
+    /// "Slightly below the sustainable 1 % low" (goals.md §5.3 item 2), in steps of 5 so the
+    /// value stays the same while more baseline runs come in. `None` = a cap wouldn't help:
+    /// below 60 FPS it would feel worse, and with no headroom it would do nothing.
+    pub fn frame_cap(&self) -> Option<u32> {
+        let cap = ((self.low_1 * 0.97) / 5.0).floor() * 5.0;
+        (cap >= 60.0 && cap <= self.avg_fps * 0.9).then_some(cap as u32)
+    }
 }
 
 /// Who/what the plan is for.
@@ -96,6 +123,18 @@ pub struct GameTarget {
     /// File name, e.g. `FortniteClient-Win64-Shipping.exe` (IFEO is keyed by name).
     pub exe_name: String,
     pub anticheat: AntiCheat,
+    /// Install folder (`{install}` in game config paths). May be empty.
+    pub install_dir: String,
+}
+
+/// Generic runtimes: keying anything by these names would change other programs too.
+const SHARED_EXES: &[&str] = &["javaw.exe", "java.exe", "python.exe", "pythonw.exe"];
+
+impl GameTarget {
+    fn shared_exe(&self, db: &GameDb) -> bool {
+        SHARED_EXES.iter().any(|s| s.eq_ignore_ascii_case(&self.exe_name))
+            || db.find(self).is_some_and(|g| g.shared_exe)
+    }
 }
 
 pub struct PlanContext<'a> {
@@ -108,6 +147,12 @@ pub struct PlanContext<'a> {
     pub policy: &'a SafetyPolicy,
     pub capabilities: &'a [String],
     pub now_hour: u8,
+    pub games: &'a GameDb,
+    /// The interactive user's folders (game config paths).
+    pub dirs: &'a UserDirs,
+    pub baseline: Option<Baseline>,
+    /// Expert mode: game config settings that are disputed or visibly change the image.
+    pub expert: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -130,7 +175,10 @@ impl Catalog {
         let f: CatalogFile = toml::from_str(text).map_err(|e| e.to_string())?;
         let mut tweaks = f.tweak;
         tweaks.sort_by_key(|t| t.order);
-        Ok(Self { tweaks })
+        Ok(Self {
+            tweaks,
+            games: GameDb::builtin(),
+        })
     }
 
     pub fn get(&self, id: &str) -> Option<&TweakMeta> {
@@ -168,7 +216,45 @@ pub const BUILDERS: &[(&str, Builder)] = &[
     ("windowed_opt", windowed_opt),
     ("hags", hags),
     ("pause_updates", pause_updates),
+    ("driver_power", driver_power),
+    ("game_config", game_config),
+    ("unreal_engine_ini", unreal_engine_ini),
 ];
+
+/// One line of an Expert preview diff: what a file patch would change.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewLine {
+    pub file: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub section: Option<String>,
+    pub key: String,
+    /// `None` = the key is added.
+    pub from: Option<String>,
+    pub to: String,
+}
+
+/// Preview of every file patch in `actions`, read from the current files.
+pub fn preview(actions: &[Action], sys: &dyn SystemOps) -> Vec<PreviewLine> {
+    let mut out = Vec::new();
+    for a in actions {
+        let Action::FilePatch { path, format, edits } = a else {
+            continue;
+        };
+        let bytes = sys.file_read(path).ok().flatten().map(|f| f.bytes).unwrap_or_default();
+        let cur = config::read(&bytes, *format, edits).unwrap_or_else(|_| vec![None; edits.len()]);
+        for (e, from) in edits.iter().zip(cur) {
+            out.push(PreviewLine {
+                file: path.clone(),
+                section: e.section.clone(),
+                key: e.key.clone(),
+                from,
+                to: e.value.clone(),
+            });
+        }
+    }
+    out
+}
 
 // ---------------------------------------------------------------- helpers
 
@@ -263,9 +349,216 @@ fn hybrid_gpu(ctx: &PlanContext, sys: &dyn SystemOps) -> SysResult<Build> {
     )]))
 }
 
-fn frame_cap(_: &PlanContext, _: &dyn SystemOps) -> SysResult<Build> {
-    // Reached only when the "driver_profiles" capability exists (Phase 7).
-    Ok(Build::NotApplicable("needs_driver_profiles"))
+/// A config file of this game, read: `(path, format, bytes)`.
+type ReadFile = (String, ConfigFormat, Vec<u8>);
+
+/// Outcome of looking for a game's config file.
+enum Found {
+    File(ReadFile),
+    ReadOnly,
+    Missing,
+}
+
+fn find_file(ctx: &PlanContext, sys: &dyn SystemOps, template: &str, format: ConfigFormat) -> SysResult<Found> {
+    let Some(path) = games::expand(template, ctx.dirs, &ctx.game.install_dir) else {
+        return Ok(Found::Missing);
+    };
+    Ok(match sys.file_read(&path)? {
+        None => Found::Missing,
+        Some(f) if f.readonly => Found::ReadOnly,
+        Some(f) if f.bytes.len() > crate::engine::MAX_PATCH_FILE => Found::Missing,
+        Some(f) => Found::File((path, format, f.bytes)),
+    })
+}
+
+fn patch_action(path: String, format: ConfigFormat, edits: Vec<ConfigEdit>) -> Action {
+    Action::FilePatch { path, format, edits }
+}
+
+/// The game's own frame limiter key, if the database knows one for this game.
+fn game_frame_limiter(ctx: &PlanContext, sys: &dyn SystemOps, cap: u32) -> SysResult<Option<Build>> {
+    if !ctx.games.may_patch(ctx.game) {
+        return Ok(None);
+    }
+    let Some(entry) = ctx.games.find(ctx.game) else {
+        return Ok(None);
+    };
+    let Some(s) = entry.setting.iter().find(|s| s.role == Role::FrameCap) else {
+        return Ok(None);
+    };
+    let Some(file) = entry.file(&s.file) else {
+        return Ok(None);
+    };
+    let (path, format, bytes) = match find_file(ctx, sys, &file.path, file.format)? {
+        Found::File(f) => f,
+        Found::ReadOnly => return Ok(Some(Build::NotApplicable("config_read_only"))),
+        Found::Missing => return Ok(None),
+    };
+    let e = games::edit(s, games::format_value(cap, s.value_format));
+    let cur = config::read(&bytes, format, std::slice::from_ref(&e)).unwrap_or_default();
+    // The player already caps at or below our value: theirs is at least as even.
+    if let Some(c) = cur.first().cloned().flatten().and_then(|v| v.trim().parse::<f64>().ok()) {
+        if c > 0.0 && c <= cap as f64 {
+            return Ok(Some(Build::AlreadyOptimal));
+        }
+    }
+    Ok(Some(Build::Actions(vec![patch_action(path, format, vec![e])])))
+}
+
+fn frame_cap(ctx: &PlanContext, sys: &dyn SystemOps) -> SysResult<Build> {
+    let Some(b) = ctx.baseline else {
+        return Ok(Build::NotApplicable("needs_baseline"));
+    };
+    if !b.cpu_bound {
+        return Ok(Build::NotApplicable("not_cpu_bound"));
+    }
+    let Some(cap) = b.frame_cap() else {
+        return Ok(Build::NotApplicable("frame_cap_not_useful"));
+    };
+    // 1) Driver limiter for the game's executable (NVIDIA): works in every game.
+    if sys.driver_profiles() && !ctx.game.exe_name.is_empty() && !ctx.game.shared_exe(ctx.games) {
+        let cur = sys.driver_get(&ctx.game.exe_name, DriverSetting::MaxFrameRate)?;
+        if cur.is_some_and(|c| c > 0 && c <= cap) {
+            return Ok(Build::AlreadyOptimal);
+        }
+        return Ok(Build::Actions(vec![Action::DriverSetting {
+            exe: ctx.game.exe_name.clone(),
+            setting: DriverSetting::MaxFrameRate,
+            target: DriverTarget::Set(cap),
+        }]));
+    }
+    // 2) The game's own limiter, from the per-game database (never for protected titles).
+    if let Some(b) = game_frame_limiter(ctx, sys, cap)? {
+        return Ok(b);
+    }
+    // 3) Nothing we can set safely: the UI recommends the in-game limiter instead.
+    Ok(Build::NotApplicable("no_frame_limiter"))
+}
+
+fn driver_power(ctx: &PlanContext, sys: &dyn SystemOps) -> SysResult<Build> {
+    if !sys.driver_profiles() {
+        return Ok(Build::NotApplicable("no_driver_profiles"));
+    }
+    if ctx.game.exe_name.is_empty() || ctx.game.shared_exe(ctx.games) {
+        return Ok(Build::NotApplicable("shared_executable"));
+    }
+    // Laptop on battery: maximum clocks would only drain it.
+    if ctx.hw.is_laptop() && ctx.hw.power.power_source.val() == Some(PowerSource::Battery) {
+        return Ok(Build::NotApplicable("on_battery"));
+    }
+    if sys.driver_get(&ctx.game.exe_name, DriverSetting::PowerMode)? == Some(1) {
+        return Ok(Build::AlreadyOptimal);
+    }
+    Ok(Build::Actions(vec![Action::DriverSetting {
+        exe: ctx.game.exe_name.clone(),
+        setting: DriverSetting::PowerMode,
+        target: DriverTarget::Set(1), // PREFERRED_PSTATE_PREFER_MAX
+    }]))
+}
+
+/// The per-game recommended settings (catalog/games/*.toml).
+fn game_config(ctx: &PlanContext, sys: &dyn SystemOps) -> SysResult<Build> {
+    let Some(entry) = ctx.games.find(ctx.game) else {
+        return Ok(Build::NotApplicable("no_game_config"));
+    };
+    if !ctx.games.may_patch(ctx.game) {
+        return Ok(Build::NotApplicable("game_protected"));
+    }
+    let (mut actions, mut found, mut read_only) = (Vec::new(), false, false);
+    for file in &entry.file {
+        let wanted: Vec<_> = entry
+            .setting
+            .iter()
+            .filter(|s| s.file == file.id && s.role == Role::Fixed)
+            .filter(|s| ctx.expert || s.easy_mode_ok())
+            .collect();
+        if wanted.is_empty() {
+            continue;
+        }
+        let (path, format, bytes) = match find_file(ctx, sys, &file.path, file.format)? {
+            Found::File(f) => f,
+            Found::ReadOnly => {
+                read_only = true;
+                continue;
+            }
+            Found::Missing => continue,
+        };
+        found = true;
+        let edits: Vec<ConfigEdit> = wanted
+            .iter()
+            .map(|s| games::edit(s, s.value.clone().unwrap_or_default()))
+            .collect();
+        let Ok(cur) = config::read(&bytes, format, &edits) else {
+            continue; // not text we can edit safely
+        };
+        let edits: Vec<ConfigEdit> = wanted
+            .iter()
+            .zip(edits)
+            .zip(cur)
+            .filter(|((s, _), c)| s.wants_change(c.as_deref()))
+            .map(|((_, e), _)| e)
+            .collect();
+        if !edits.is_empty() {
+            actions.push(patch_action(path, format, edits));
+        }
+    }
+    if !found {
+        return Ok(Build::NotApplicable(if read_only { "config_read_only" } else { "config_not_found" }));
+    }
+    Ok(done(actions))
+}
+
+/// Generic Unreal Engine rule (goals.md §5.5): Expert only, with a preview diff. Turns off
+/// motion blur, chromatic aberration and volumetric fog through `Engine.ini`, which most
+/// Unreal games read from the user's Saved\Config folder.
+pub const UNREAL_EDITS: &[(&str, &str)] = &[
+    ("r.MotionBlurQuality", "0"),
+    ("r.SceneColorFringeQuality", "0"),
+    ("r.VolumetricFog", "0"),
+];
+
+fn unreal_engine_ini(ctx: &PlanContext, sys: &dyn SystemOps) -> SysResult<Build> {
+    if !ctx.games.may_patch(ctx.game) {
+        return Ok(Build::NotApplicable("game_protected"));
+    }
+    let Some(project) = games::unreal_project(&ctx.game.exe_path) else {
+        return Ok(Build::NotApplicable("not_unreal"));
+    };
+    for dir in games::unreal_config_dirs(&project, ctx.dirs) {
+        // Only where the game already keeps its settings (GameUserSettings.ini).
+        if sys.file_read(&format!(r"{dir}\GameUserSettings.ini"))?.is_none() {
+            continue;
+        }
+        let path = format!(r"{dir}\Engine.ini");
+        let bytes = match sys.file_read(&path)? {
+            Some(f) if f.readonly => return Ok(Build::NotApplicable("config_read_only")),
+            Some(f) => f.bytes,
+            // We never create config files: no Engine.ini, nothing to do.
+            None => return Ok(Build::NotApplicable("config_not_found")),
+        };
+        let edits: Vec<ConfigEdit> = UNREAL_EDITS
+            .iter()
+            .map(|(k, v)| ConfigEdit {
+                section: Some("SystemSettings".into()),
+                key: (*k).into(),
+                value: (*v).into(),
+            })
+            .collect();
+        let Ok(cur) = config::read(&bytes, ConfigFormat::Ini, &edits) else {
+            return Ok(Build::NotApplicable("config_not_found"));
+        };
+        let edits: Vec<ConfigEdit> = edits
+            .into_iter()
+            .zip(cur)
+            .filter(|(e, c)| c.as_deref() != Some(e.value.as_str()))
+            .map(|(e, _)| e)
+            .collect();
+        if edits.is_empty() {
+            return Ok(Build::AlreadyOptimal);
+        }
+        return Ok(Build::Actions(vec![patch_action(path, ConfigFormat::Ini, edits)]));
+    }
+    Ok(Build::NotApplicable("config_not_found"))
 }
 
 fn power_session(ctx: &PlanContext, sys: &dyn SystemOps) -> SysResult<Build> {
@@ -326,6 +619,10 @@ fn background_isolation(ctx: &PlanContext, _: &dyn SystemOps) -> SysResult<Build
 }
 
 fn game_priority(ctx: &PlanContext, sys: &dyn SystemOps) -> SysResult<Build> {
+    // IFEO is keyed by file name: for javaw.exe it would raise every Java program.
+    if ctx.game.exe_name.is_empty() || ctx.game.shared_exe(ctx.games) {
+        return Ok(Build::NotApplicable("shared_executable"));
+    }
     let key = format!(r"{IFEO_KEY}\{}\PerfOptions", ctx.game.exe_name);
     let m = RegRoot::LocalMachine;
     let mut a = Vec::new();

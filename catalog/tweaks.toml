@@ -12,6 +12,7 @@
 #            at_launch     = applied when the game process appears
 # measure:   frametime        = judged by the 1 % low (A/B, see experiment.rs)
 #            background_noise = judged by stutters per minute
+#            pacing           = judged by frametime spread (stdev): for caps that trade avg FPS for evenness
 #            none             = protective, never claims a performance gain
 # evidence:  proven | version_dependent | disputed
 # order:     experiment order — highest expected impact first
@@ -36,12 +37,24 @@ timing = "before_launch"
 risk = "low"
 evidence = "proven"
 anticheat_safe = true
-measure = "frametime"
+measure = "pacing"
 requires_reboot = false
 persistent_candidate = true
 order = 20
-requires = ["driver_profiles"]
-notes = "Cap slightly below the sustainable 1 % low via NVAPI DRS / ADLX. Needs the driver-profile primitive (Phase 7)."
+notes = "CPU-bound games only: cap slightly below the sustainable 1 % low (baseline) so frametimes stay even. NVIDIA driver limiter for the game's exe (NVAPI DRS); otherwise the game's own limiter from catalog/games; otherwise the UI recommends the in-game limiter. Judged by frametime spread, not average FPS."
+
+[[tweak]]
+id = "game_config"
+scope = "persistent"
+timing = "before_launch"
+risk = "low"
+evidence = "proven"
+anticheat_safe = false
+measure = "frametime"
+requires_reboot = false
+persistent_candidate = true
+order = 25
+notes = "Per-game recommended settings from catalog/games/*.toml (only keys the game really reads). Easy mode: proven settings with no or low visual impact. Never for protected titles."
 
 [[tweak]]
 id = "power_session"
@@ -159,3 +172,29 @@ requires_reboot = false
 persistent_candidate = false
 order = 200
 notes = "Windows Update active hours cover the session so it never restarts the PC mid-game. Protective: no FPS claim."
+
+[[tweak]]
+id = "driver_power"
+scope = "persistent"
+timing = "before_launch"
+risk = "low"
+evidence = "version_dependent"
+anticheat_safe = true
+measure = "frametime"
+requires_reboot = false
+persistent_candidate = true
+order = 85
+notes = "NVIDIA 'Power management mode = Prefer maximum performance' for the game's exe only (NVAPI DRS). Helps when clocks drop in light or CPU-bound scenes; recent drivers often handle it well, so it must prove itself. Not on battery, never for generic executables (javaw.exe)."
+
+[[tweak]]
+id = "unreal_engine_ini"
+scope = "persistent"
+timing = "before_launch"
+risk = "medium"
+evidence = "disputed"
+anticheat_safe = false
+measure = "frametime"
+requires_reboot = false
+persistent_candidate = true
+order = 95
+notes = "Generic Unreal Engine rule (Expert only, preview diff): motion blur, chromatic aberration and volumetric fog off in the user's Engine.ini. Some games ignore Engine.ini; the A/B test decides. Never for protected titles, never creates the file."

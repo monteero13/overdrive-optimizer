@@ -30,7 +30,8 @@ use windows::Win32::System::Threading::{
 };
 
 use overdrive_core::engine::{
-    PriorityClass, ProcRef, RegData, RegRoot, StartType, SysError, SysResult, SystemOps,
+    DriverSetting, FileData, PriorityClass, ProcRef, RegData, RegRoot, StartType, SysError,
+    SysResult, SystemOps,
 };
 
 #[link(name = "ntdll")]
@@ -545,6 +546,99 @@ impl SystemOps for WinSystem {
             0 => Ok(()),
             s => Err(SysError::Other(format!("NtResumeProcess 0x{s:08x}"))),
         }
+    }
+
+    fn file_read(&self, path: &str) -> SysResult<Option<FileData>> {
+        files::read(path)
+    }
+    fn file_write_atomic(&self, path: &str, bytes: &[u8]) -> SysResult<()> {
+        files::write_atomic(path, bytes)
+    }
+    fn file_delete(&self, path: &str) -> SysResult<()> {
+        match std::fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(e) => Err(files::io_err(path, e)),
+        }
+    }
+
+    fn driver_profiles(&self) -> bool {
+        crate::nvapi::available()
+    }
+    fn driver_get(&self, exe: &str, setting: DriverSetting) -> SysResult<Option<u32>> {
+        crate::nvapi::get(exe, setting)
+    }
+    fn driver_set(&self, exe: &str, setting: DriverSetting, value: u32) -> SysResult<()> {
+        crate::nvapi::set(exe, setting, value)
+    }
+    fn driver_clear(&self, exe: &str, setting: DriverSetting) -> SysResult<()> {
+        crate::nvapi::clear(exe, setting)
+    }
+}
+
+/// Game config files: read, and atomic replace that keeps the target's attributes and ACL.
+pub mod files {
+    use std::io::Write;
+
+    use overdrive_core::engine::{FileData, SysError, SysResult};
+    use windows::core::HSTRING;
+    use windows::Win32::Storage::FileSystem::{
+        MoveFileExW, ReplaceFileW, MOVEFILE_WRITE_THROUGH, REPLACEFILE_IGNORE_MERGE_ERRORS,
+    };
+
+    pub fn io_err(path: &str, e: std::io::Error) -> SysError {
+        match e.kind() {
+            std::io::ErrorKind::NotFound => SysError::NotFound(path.into()),
+            std::io::ErrorKind::PermissionDenied => SysError::AccessDenied(path.into()),
+            _ => SysError::Other(format!("{path}: {e}")),
+        }
+    }
+
+    pub fn read(path: &str) -> SysResult<Option<FileData>> {
+        let meta = match std::fs::metadata(path) {
+            Ok(m) => m,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+            Err(e) => return Err(io_err(path, e)),
+        };
+        if !meta.is_file() {
+            return Err(SysError::Other(format!("{path} is not a file")));
+        }
+        let bytes = std::fs::read(path).map_err(|e| io_err(path, e))?;
+        Ok(Some(FileData {
+            bytes,
+            readonly: meta.permissions().readonly(),
+        }))
+    }
+
+    /// Temp file next to the target (same volume), flushed to disk, then swapped in one
+    /// rename. A crash leaves either the old file or the new one, never a mix; a leftover
+    /// temp file is harmless and overwritten next time.
+    pub fn write_atomic(path: &str, bytes: &[u8]) -> SysResult<()> {
+        let existing = std::fs::metadata(path).ok();
+        if existing.as_ref().is_some_and(|m| m.permissions().readonly()) {
+            return Err(SysError::AccessDenied(format!("{path} is read-only")));
+        }
+        let tmp = format!("{path}.overdrive.tmp");
+        let res = (|| -> SysResult<()> {
+            let mut f = std::fs::File::create(&tmp).map_err(|e| io_err(&tmp, e))?;
+            f.write_all(bytes).map_err(|e| io_err(&tmp, e))?;
+            f.sync_all().map_err(|e| io_err(&tmp, e))?;
+            drop(f);
+            let (target, src) = (HSTRING::from(path), HSTRING::from(tmp.as_str()));
+            unsafe {
+                if existing.is_some() {
+                    // Keeps the original's attributes, ACL and creation time.
+                    ReplaceFileW(&target, &src, None, REPLACEFILE_IGNORE_MERGE_ERRORS, None, None)
+                } else {
+                    MoveFileExW(&src, &target, MOVEFILE_WRITE_THROUGH)
+                }
+            }
+            .map_err(|e| SysError::Other(format!("{path}: replace failed: {e}")))
+        })();
+        if res.is_err() {
+            let _ = std::fs::remove_file(&tmp);
+        }
+        res
     }
 }
 

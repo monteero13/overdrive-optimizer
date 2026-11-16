@@ -16,11 +16,12 @@ use std::collections::{HashMap, HashSet};
 use serde::Serialize;
 use serde_json::json;
 
-use crate::catalog::{Build, Catalog, GameTarget, Measure, PlanContext, Timing};
+use crate::catalog::{Baseline, Build, Catalog, GameTarget, Measure, PlanContext, Timing};
 use crate::engine::journal::{Journal, StepState, TxKind, TxState};
 use crate::engine::tx::{Engine, PlannedAction, RevertReport, TxError};
 use crate::engine::{ProcRef, RegRoot, SystemOps};
 use crate::experiment::{self, Comparison, ExperimentSettings, Next, SessionPoint, Verdict};
+use crate::games::UserDirs;
 use crate::profile::HardwareProfile;
 use crate::safety::{ProcInfo, SafetyPolicy};
 use crate::telemetry::classify::{classify, Thresholds};
@@ -113,6 +114,8 @@ pub struct Orchestrator<'a> {
     pub disabled: HashSet<String>,
     /// Images the user asked us never to touch (lowercase), on top of the built-in policy.
     pub whitelist: HashSet<String>,
+    /// The interactive user's folders (game config files).
+    pub dirs: UserDirs,
 }
 
 impl<'a> Orchestrator<'a> {
@@ -128,10 +131,40 @@ impl<'a> Orchestrator<'a> {
             now_hour: 20,
             disabled: HashSet::new(),
             whitelist: HashSet::new(),
+            dirs: UserDirs::default(),
         }
     }
 
-    fn ctx<'b>(
+    /// Medians of the valid baseline sessions (no tweak active). Needs 2 runs.
+    pub fn baseline(&self, game_id: &str) -> Option<Baseline> {
+        let base: Vec<_> = self
+            .journal
+            .sessions(game_id)
+            .ok()?
+            .into_iter()
+            .filter(|s| s.valid && s.tweak_set.is_empty())
+            .collect();
+        if base.len() < 2 {
+            return None;
+        }
+        let median = |mut v: Vec<f64>| {
+            v.sort_by(f64::total_cmp);
+            let n = v.len();
+            if n % 2 == 1 { v[n / 2] } else { (v[n / 2 - 1] + v[n / 2]) / 2.0 }
+        };
+        let cpu = base
+            .iter()
+            .filter(|s| matches!(s.bottleneck.as_deref(), Some("cpu_bound" | "mixed")))
+            .count();
+        Some(Baseline {
+            avg_fps: median(base.iter().map(|s| s.metrics.avg_fps).collect()),
+            low_1: median(base.iter().map(|s| s.metrics.low_1).collect()),
+            cpu_bound: cpu * 2 > base.len(),
+            runs: base.len(),
+        })
+    }
+
+    pub fn ctx<'b>(
         &'b self,
         game: &'b GameTarget,
         hw: &'b HardwareProfile,
@@ -146,6 +179,10 @@ impl<'a> Orchestrator<'a> {
             policy,
             capabilities: &self.capabilities,
             now_hour: self.now_hour,
+            games: &self.catalog.games,
+            dirs: &self.dirs,
+            baseline: self.baseline(&game.id),
+            expert: self.expert,
         }
     }
 

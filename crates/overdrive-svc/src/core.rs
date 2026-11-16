@@ -9,7 +9,8 @@
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 
-use overdrive_core::catalog::{Build, Catalog, GameTarget, Measure, PlanContext};
+use overdrive_core::catalog::{self as cat, Build, Catalog, GameTarget, Measure};
+use overdrive_core::games::UserDirs;
 use overdrive_core::coach::{self, VerifyStatus};
 use overdrive_core::drift::{DriftGuardian, Finding, RepairOutcome, Trigger};
 use overdrive_core::engine::journal::{Journal, StepState, TxKind, TxState};
@@ -202,6 +203,8 @@ pub struct Core {
     reports: Reports,
     settings: ExperimentSettings,
     user_root: RegRoot,
+    /// The interactive user's folders (game config files), refreshed with the user.
+    user_dirs: UserDirs,
     profile: Option<HardwareProfile>,
     issues: Vec<StructuralIssue>,
     library: Vec<LibraryGame>,
@@ -247,6 +250,7 @@ impl Core {
             reports,
             settings: ExperimentSettings::default(),
             user_root,
+            user_dirs: UserDirs::default(),
             profile: None,
             issues: vec![],
             library: vec![],
@@ -328,6 +332,7 @@ impl Core {
     }
 
     fn rescan(&mut self) {
+        self.user_dirs = self.platform.user_dirs(&self.user_root);
         let p = self.platform.profile(&self.user_root);
         let mut iss = issues::structural_issues(&p);
         issues::rank(&mut iss);
@@ -491,6 +496,7 @@ impl Core {
             exe_path,
             exe_name,
             anticheat,
+            install_dir: g.install_dir.clone(),
         }
     }
 
@@ -498,6 +504,7 @@ impl Core {
         let mut o = Orchestrator::new(&self.journal, self.sys.as_ref(), &self.catalog);
         o.settings = self.settings;
         o.user_root = self.user_root.clone();
+        o.dirs = self.user_dirs.clone();
         o.expert = self.store.settings.mode == "expert";
         o.now_hour = self.platform.local_hour();
         o.whitelist = self.store.whitelist.iter().cloned().collect();
@@ -554,15 +561,7 @@ impl Core {
         let persistent = o.persistent_tweaks().map_err(tx_fail)?;
         let expert = o.expert;
         let policy = SafetyPolicy::default();
-        let ctx = PlanContext {
-            game: &target,
-            hw,
-            user_root: self.user_root.clone(),
-            procs: None,
-            policy: &policy,
-            capabilities: &[],
-            now_hour: o.now_hour,
-        };
+        let ctx = o.ctx(&target, hw, None, &policy);
         let disabled = &o.disabled;
         let mut items = Vec::new();
         let mut hidden = 0;
@@ -612,7 +611,13 @@ impl Core {
                 }
             };
             let s = |v: &dyn erased::Ser| v.str();
+            // Expert sees exactly which lines of which config file would change.
+            let preview = match (expert, self.catalog.build(&m.id, &ctx, self.sys.as_ref())) {
+                (true, Ok(Build::Actions(a))) => cat::preview(&a, self.sys.as_ref()),
+                _ => vec![],
+            };
             items.push(PlanItem {
+                preview,
                 tweak_id: m.id.clone(),
                 scope: s(&m.scope),
                 risk: s(&m.risk),

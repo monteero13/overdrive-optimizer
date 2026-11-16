@@ -1,7 +1,7 @@
 {
   "plan": {
     "gameId": "steam:367520",
-    "hiddenInEasy": 4,
+    "hiddenInEasy": 6,
     "items": [
       {
         "after": "tw.hybrid_gpu.after",
@@ -589,7 +589,7 @@
   },
   "snapshot": {
     "activeSession": null,
-    "bootId": "18e8989430a89b58-990-6c659f4540",
+    "bootId": "18e89bcedce754f8-3588-dc2bbf3c70",
     "coach": null,
     "games": [
       {
@@ -719,7 +719,7 @@
     "operations": [],
     "persistentChanges": [
       {
-        "since": 1794852214306,
+        "since": 1794855764862,
         "source": "user_accept",
         "tweakId": "hybrid_gpu"
       }
