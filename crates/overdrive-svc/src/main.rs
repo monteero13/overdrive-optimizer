@@ -81,3 +81,4 @@ fn console(args: &[String]) {
     eprintln!("ready");
     server::run(core, rx);
 }
+

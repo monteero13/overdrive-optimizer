@@ -105,6 +105,55 @@ fn ipc_status(relay: State<'_, Arc<Relay>>) -> bool {
     relay.up.load(Ordering::SeqCst)
 }
 
+/// Public repository of community measurements (issues) and presets.
+const REPO: &str = "monteero13/overdrive-optimizer";
+const PRESETS_URL: &str =
+    "https://raw.githubusercontent.com/monteero13/overdrive-optimizer/master/presets/community.json";
+const MAX_PRESETS: u64 = 2 * 1024 * 1024;
+
+/// A "new issue" URL of our repository, percent-encoded by the service: nothing else
+/// can be opened (no arbitrary URLs, no files, no programs).
+fn is_issue_url(url: &str) -> bool {
+    url.strip_prefix(&format!("https://github.com/{REPO}/issues/new?"))
+        .is_some_and(|q| q.bytes().all(|b| b.is_ascii_alphanumeric() || b"%&=-_.~".contains(&b)))
+        && url.len() < 60_000
+}
+
+/// The user pressed "Open in GitHub" after reading the exact payload: open the default
+/// browser on the pre-filled issue. Sending is still the user's click in GitHub.
+#[tauri::command]
+fn open_issue(url: String) -> Result<(), String> {
+    if !is_issue_url(&url) {
+        return Err("not an Overdrive issue URL".into());
+    }
+    std::process::Command::new("explorer.exe")
+        .arg(&url)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// Download the public community presets file (only called when the user opted in).
+/// The service itself never touches the network.
+#[tauri::command]
+async fn fetch_presets() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let mut res = ureq::get(PRESETS_URL)
+            .config()
+            .timeout_global(Some(Duration::from_secs(15)))
+            .build()
+            .call()
+            .map_err(|e| e.to_string())?;
+        res.body_mut()
+            .with_config()
+            .limit(MAX_PRESETS)
+            .read_to_string()
+            .map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 fn send_own(app: &AppHandle, method: &str) {
     let relay = app.state::<Arc<Relay>>();
     let id = OWN_ID.fetch_add(1, Ordering::Relaxed);
@@ -135,7 +184,7 @@ fn main() {
     let relay = Arc::new(Relay::default());
     let app = tauri::Builder::default()
         .manage(relay.clone())
-        .invoke_handler(tauri::generate_handler![ipc_send, ipc_status])
+        .invoke_handler(tauri::generate_handler![ipc_send, ipc_status, open_issue, fetch_presets])
         .setup(move |app| {
             let h = app.handle().clone();
             thread::spawn(move || relay_loop(h, relay));
@@ -176,4 +225,18 @@ fn main() {
             api.prevent_exit();
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_issue_url;
+
+    #[test]
+    fn only_prefilled_issues_of_our_repo_can_be_opened() {
+        assert!(is_issue_url("https://github.com/monteero13/overdrive-optimizer/issues/new?title=%5Bx%5D&body=a%20b"));
+        assert!(!is_issue_url("https://github.com/someone/else/issues/new?title=x"));
+        assert!(!is_issue_url("https://evil.example/?https://github.com/monteero13/overdrive-optimizer/issues/new?"));
+        assert!(!is_issue_url("https://github.com/monteero13/overdrive-optimizer/issues/new?title=x\" & calc"));
+        assert!(!is_issue_url("file:///C:/Windows/System32/calc.exe"));
+    }
 }

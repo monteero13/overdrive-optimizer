@@ -6,11 +6,56 @@
 | `overdrive-win` | Implementación real para Windows 10/11. Es el único crate con `unsafe` (`src/sys.rs`, `src/telemetry.rs`, `src/system_ops.rs`, `src/processes.rs`). Incluye el binario `overdrive-probe`. |
 
 ```bash
-cargo test --workspace                          # 121 tests (perfil, muestreador, registro, tareas, procesos, archivos y NVAPI reales incluidos)
+cargo test --workspace                          # 132 tests (perfil, muestreador, registro, tareas, procesos, archivos y NVAPI reales incluidos)
+powershell -File tools/footprint.ps1             # presupuesto de consumo en reposo (§4.3)
 cargo run --release -p overdrive-win --bin overdrive-probe -- --stability 7
 cargo run -p overdrive-core --example gen_traces              # regenera la biblioteca de trazas
 cargo run -p overdrive-core --example inspect_trace -- <nombre>  # veredicto ventana a ventana
 ```
+
+## Fase 8 (en curso): compartir, presets de la comunidad y release
+
+### Decisiones tomadas
+
+- **Firma de código:** de momento sin certificado. Azure Artifact Signing no admite desarrolladores individuales fuera de EE. UU. y Canadá, y un certificado OV cuesta unos 200–400 €/año. SmartScreen seguirá avisando.
+- **Backend de la comunidad:** GitHub. Compartir abre un issue ya rellenado en el navegador y el usuario lo envía con su cuenta; una Action verifica y agrega. No hay servidor propio.
+- **Actualizaciones:** GitHub Releases (pendiente).
+- **El servicio nunca usa la red.** Solo la ventana de la app descarga el archivo público de presets, y únicamente con el opt-in activado.
+
+### Piezas
+
+| Pieza | Dónde | Qué hace |
+|---|---|---|
+| Núcleo de compartir | `core::share` | Identidad por instalación (ed25519), clase de hardware anónima (tier, portátil, fabricante de GPU y hash de CPU+GPU+RAM, sin modelos), tarjetas, mediciones, agregación de presets y códigos de "Ayuda a un amigo". Códigos `PREFIJO.base64url(deflate(json))`, con límite de tamaño y protección contra bombas zip. |
+| Tarjeta antes/después | `share.card`, `ui/share.ts` | Solo desde un informe con línea base medida. SVG autónomo exportable a PNG; el submuestreo usa el máximo de cada tramo para que **un tirón nunca desaparezca** de la gráfica. Lleva un id de verificación, y `share.verifyCard` detecta cualquier retoque. |
+| Mediciones para presets | `share.measurements` | Solo veredictos A/B finales (`kept`, `no_benefit`, `harmful`). La vista previa es **exactamente** el JSON que se publica. |
+| Agregación | `core::share::aggregate`, `.github/workflows/presets.yml` | Firmas verificadas y cada instalación cuenta una vez. Un preset solo muestra una ganancia con **≥ 5 instalaciones independientes**, ≥ 80 % de acuerdo y mediana ≥ 3 %; si no, queda "midiéndose". Se publica en `presets/community.json` y se modera cerrando issues. |
+| Ayuda a un amigo | `help.*` | Petición anonimizada: modelos de las piezas, problemas estructurales y, por juego, plan e historial medido; nunca rutas, usuario ni procesos. La respuesta del amigo **solo puede activar o desactivar lo que el plan ya ofrece**, se vuelve a filtrar en el PC que la aplica y se rechaza si no responde a una petición hecha desde ese PC. |
+| Shell | `ui/src-tauri` | `open_issue` solo abre URLs de nuevo issue de este repositorio; `fetch_presets` solo descarga el archivo fijo, máximo 2 MB. |
+| Presupuesto de consumo | `tools/footprint.ps1`, `ci.yml` | Mide el servicio en reposo (modo dry-run) y falla si supera **15 MB o el 0,1 % de CPU**. |
+| CI | `.github/workflows/ci.yml` | Clippy sin avisos, tests de Rust, tests de la UI (contrato con el servicio real) y presupuesto de consumo, en Windows. |
+
+### El presupuesto de consumo encontró un problema real
+
+La primera medición dio **0,19 % de CPU en reposo**, casi el doble del límite. Midiendo por partes (`overdrive-win/examples/scan_cost.rs`):
+- El servicio sin vigilar procesos gasta prácticamente un 0 %.
+- El listado completo de procesos cuesta 7,5 ms (ventanas + sesiones de audio WASAPI) y se hacía cada 2 s.
+- Además, al arrancar todos los procesos contaban como "nuevos" durante 90 s, y los ejecutables auxiliares nunca quedaban resueltos.
+
+Arreglo:
+- Una instantánea barata (1,4 ms, sin abrir procesos y solo de la sesión del usuario) decide si hace falta el listado completo.
+- Cada proceso nuevo se identifica una sola vez.
+- En reposo se comprueba cada 3 s.
+
+**Resultado: 0,026 % de CPU y 6,7 MB.** El juego se detecta como mucho 3 s después de arrancar. ETW (§4.3), que no tendría coste en reposo, sigue pendiente.
+
+### Pendiente
+
+- [ ] Actualizador: manifiesto firmado (ed25519), despliegue escalonado y vuelta atrás.
+- [ ] Workflow de release y paso de firma de código preparado para cuando haya certificado.
+- [ ] Exportar diagnóstico anonimizado y rotación de logs (§8).
+- [ ] Instalación limpia en máquinas virtuales Windows 10 y 11 (criterio de terminado de la fase 8).
+- [ ] Subir los cambios a GitHub para que funcionen la CI, los presets y las releases.
 
 ## Fase 7: parcheador de configuración de juegos y perfiles de driver
 

@@ -336,6 +336,57 @@ test('i18n: every notice/err key the real service emits exists (es + en)', () =>
 });
 
 // ---------------------------------------------------------------- run
+test('i18n: every literal key used by the UI exists (es + en)', () => {
+  const files = ['app.ts', 'views.ts', 'overlays.ts', 'report.ts', 'share.ts'];
+  const keys = new Set<string>();
+  for (const f of files) {
+    const src = readFileSync(new URL(`../src/ui/${f}`, import.meta.url), 'utf8');
+    for (const m of src.matchAll(/\b(?:tx|t)\(\s*'([a-z][a-z0-9_]*(?:\.[a-z0-9_]+)+)'/g)) keys.add(m[1]);
+  }
+  ok(keys.size >= 60, `parsed only ${keys.size} keys`);
+  for (const [name, dict] of [['es', es], ['en', en]] as const) {
+    const missing = [...keys].filter((k) => !(k in dict));
+    ok(!missing.length, `${name} missing: ${missing.join(', ')}`);
+  }
+  // Keys built at runtime by the sharing views.
+  for (const k of ['help.friend.ac.none', 'help.friend.ac.user_mode', 'help.friend.ac.kernel', 'community.verified', 'community.harmful', 'community.pending']) {
+    ok(k in es && k in en, `missing ${k}`);
+  }
+});
+
+test('i18n: every sharing error the service emits exists (es + en)', () => {
+  const src = readFileSync(new URL('../../../crates/overdrive-svc/src/core/sharing.rs', import.meta.url), 'utf8');
+  const keys = [...src.matchAll(/"(err\.[a-z0-9_]+)"/g)].map((m) => m[1]);
+  ok(keys.length >= 5, `parsed only ${keys.length}`);
+  for (const k of keys) ok(k in es && k in en, `missing ${k}`);
+});
+
+test('contract: sharing payloads from the real service match the TypeScript shapes and are redacted', () => {
+  // Written by `cargo test -p overdrive-svc --test e2e sharing`.
+  const fx = JSON.parse(readFileSync(new URL('./fixtures/svc-share.json', import.meta.url), 'utf8'));
+  const shape = (o: Record<string, unknown>, keys: Record<string, string>, where: string) => {
+    for (const [k, t] of Object.entries(keys)) {
+      const v = o[k];
+      const got = v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v;
+      ok(t.split('|').includes(got), `${where}.${k}: expected ${t}, got ${got}`);
+    }
+  };
+  shape(fx.card, { card: 'object', code: 'string', shortId: 'string', low1DeltaPct: 'number' }, 'cardResult');
+  shape(fx.card.card, { schema: 'number', app: 'string', gameId: 'string', game: 'string', hw: 'object', bottleneck: 'string', baselineRuns: 'number', baseline: 'object', optimized: 'object', baselineSeries: 'array', optimizedSeries: 'array', kept: 'array', day: 'string' }, 'card');
+  shape(fx.card.card.hw, { tier: 'number', laptop: 'boolean', gpuVendor: 'string', class: 'string' }, 'hw');
+  shape(fx.measurements, { count: 'number', preview: 'array', pubkey: 'string', issueUrl: 'string' }, 'measurements');
+  for (const m of fx.measurements.preview) shape(m, { schema: 'number', app: 'string', gameId: 'string', hw: 'object', tweakId: 'string', verdict: 'string', deltaPct: 'number', ciLow: 'number', ciHigh: 'number', runs: 'number' }, 'measurement');
+  shape(fx.helpRequest, { code: 'string', shortId: 'string', preview: 'object' }, 'helpRequest');
+  shape(fx.helpRequest.preview, { schema: 'number', app: 'string', hw: 'object', issues: 'array', games: 'array' }, 'helpRequest.preview');
+  for (const g of fx.helpRequest.preview.games) shape(g, { id: 'string', name: 'string', anticheat: 'string', baselineRuns: 'number', tweaks: 'array' }, 'helpGame');
+  shape(fx.helpPreview, { response: 'object', changes: 'number', applied: 'boolean' }, 'helpPreview');
+  const hy = fx.plan.items.find((i: { tweakId: string }) => i.tweakId === 'hybrid_gpu');
+  shape(hy.community, { status: 'string', installs: 'number', sameHardware: 'boolean', medianDeltaPct: 'number|null' }, 'community');
+  // Nothing the user would see in "what we send" contains a path, a user folder or an exe.
+  const sent = JSON.stringify([fx.card.card, fx.measurements.preview, fx.helpRequest.preview]);
+  ok(!/\\\\|users|appdata|\.exe/i.test(sent), 'shared payloads are redacted');
+});
+
 for (const [name, fn] of tests) {
   try {
     await fn();

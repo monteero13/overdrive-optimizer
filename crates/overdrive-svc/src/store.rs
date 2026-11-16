@@ -43,6 +43,10 @@ pub struct Store {
     pub last_gpu_driver: Option<String>,
     pub reports: Vec<ReportSummary>,
     pub whitelist: BTreeSet<String>,
+    /// Short ids of the help requests this PC made (a response must answer one of them).
+    pub help_requests: Vec<String>,
+    /// Community presets the UI downloaded (only with the opt-in on).
+    pub presets: Option<overdrive_core::share::PresetFile>,
     pub next_id: u64,
 }
 

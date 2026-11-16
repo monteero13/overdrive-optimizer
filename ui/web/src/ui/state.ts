@@ -1,4 +1,5 @@
 import type { PlanPreview, SessionReport } from '../proto/types.ts';
+import type { ShareState } from './share.ts';
 
 export type View = 'games' | 'pc' | 'history';
 
@@ -22,6 +23,12 @@ export interface UiState {
   devOpen: boolean;
   confirm: { text: string; action: string; id?: string } | null;
   toasts: Toast[];
+  /** Sharing dialog (cards, previews, help-a-friend). */
+  share: ShareState | null;
+  /** Text pasted into the sharing dialog (kept here: re-renders replace the DOM). */
+  shareInput: string;
+  /** The friend's request code being answered (help-a-friend). */
+  shareRequestCode: string;
 }
 
 export const initialUi = (): UiState => ({
@@ -37,4 +44,7 @@ export const initialUi = (): UiState => ({
   devOpen: true,
   confirm: null,
   toasts: [],
+  share: null,
+  shareInput: '',
+  shareRequestCode: '',
 });

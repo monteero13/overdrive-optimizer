@@ -42,3 +42,17 @@ export class TauriTransport implements Transport {
     this.statusCbs.push(cb);
   }
 }
+
+/** Open the pre-filled GitHub issue (the shell only accepts our repo's new-issue URLs). */
+export async function openIssue(url: string): Promise<void> {
+  if (inTauri()) await invoke('open_issue', { url });
+  else window.open(url, '_blank', 'noopener');
+}
+
+/** Download the public community presets file (only called with the opt-in on). */
+export async function fetchPresets(): Promise<unknown> {
+  const text = inTauri()
+    ? await invoke<string>('fetch_presets')
+    : await (await fetch('https://raw.githubusercontent.com/monteero13/overdrive-optimizer/master/presets/community.json')).text();
+  return JSON.parse(text) as unknown;
+}

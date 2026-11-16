@@ -13,6 +13,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["tray-icon"] }
 overdrive-ipc = { path = "../../crates/overdrive-ipc" }
 serde_json.workspace = true
+ureq = "3"
 
 [[bin]]
 name = "overdrive"

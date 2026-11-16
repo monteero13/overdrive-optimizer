@@ -33,6 +33,12 @@ pub trait Capture {
 pub trait Platform {
     fn profile(&mut self, user: &RegRoot) -> HardwareProfile;
     fn processes(&mut self) -> Vec<ProcInfo>;
+    /// (pid, start time) of every process, as cheaply as possible (no handles, no audio or
+    /// window enumeration). `None` = not available: the service then always does the full
+    /// scan.
+    fn process_keys(&mut self) -> Option<Vec<(u32, u64)>> {
+        None
+    }
     /// Full image path of a process, read without opening it.
     fn image_path(&mut self, pid: u32) -> Option<String>;
     fn library(&mut self, user: &RegRoot) -> Vec<LibraryGame>;

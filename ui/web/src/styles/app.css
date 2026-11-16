@@ -1221,3 +1221,55 @@ table.data td {
   color: var(--text-3);
   margin-top: 6px;
 }
+
+/* ---- sharing (goals.md §7) ---- */
+.dialog.share { max-height: min(88vh, 900px); overflow-y: auto; }
+.dialog.share p { margin: 8px 0; }
+.row-btns { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+.card-preview { border-radius: var(--radius); overflow: hidden; border: 1px solid var(--line); margin: 6px 0 10px; }
+.card-preview svg { display: block; width: 100%; height: auto; }
+.code-box {
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  padding: 10px 12px;
+  max-height: 120px;
+  overflow: auto;
+  margin-top: 8px;
+}
+.code-box code, .code-input {
+  font: 12px/1.5 var(--mono);
+  word-break: break-all;
+  color: var(--text-2);
+}
+.code-input {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 8px;
+  padding: 10px 12px;
+  resize: vertical;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+}
+.what-we-send { margin-top: 12px; }
+.what-we-send summary { cursor: pointer; font-weight: 560; }
+.what-we-send pre {
+  margin: 8px 0 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: 10px 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  font: 11.5px/1.45 var(--mono);
+  color: var(--text-2);
+}
+.reco { list-style: none; padding: 0; margin: 6px 0 12px; }
+.reco li { padding: 3px 0; }
+.reco li.on { color: var(--good); }
+.reco li.off { color: var(--text-2); }
+.note { margin: 10px 0; padding: 8px 12px; border-left: 3px solid var(--line); color: var(--text-2); }
+.share-entry { width: 100%; text-align: left; background: none; border: 0; color: inherit; font: inherit; cursor: pointer; }
+.share-entry:hover { background: var(--surface-2); }

@@ -262,9 +262,25 @@ pub struct PlanItem {
     pub technical: String,
     pub before: String,
     pub after: String,
+    /// Community result for this tweak in this game (only when the user opted in).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub community: Option<CommunityView>,
     /// Expert only: the config lines a file patch would change.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub preview: Vec<overdrive_core::catalog::PreviewLine>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CommunityView {
+    /// verified | harmful | pending
+    pub status: &'static str,
+    /// Independent installs that measured it.
+    pub installs: usize,
+    /// Measured on the same hardware (otherwise: same tier and GPU vendor).
+    pub same_hardware: bool,
+    /// Only present once enough installs agree (never a gain from too few).
+    pub median_delta_pct: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -373,6 +389,17 @@ pub const METHODS: &[&str] = &[
     "settings.get",
     "settings.set",
     "op.cancel",
+    // Sharing (goals.md §7): build payloads only, nothing leaves the PC from here.
+    "share.card",
+    "share.verifyCard",
+    "share.measurements",
+    "presets.import",
+    "presets.clear",
+    "help.request",
+    "help.open",
+    "help.respond",
+    "help.preview",
+    "help.apply",
 ];
 
 pub fn params_of(v: Value) -> Option<Params> {

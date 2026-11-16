@@ -13,6 +13,7 @@ overdrive-ipc = { path = "../overdrive-ipc" }
 serde.workspace = true
 serde_json.workspace = true
 windows-service = "0.8"
+getrandom = "0.3"
 
 [dependencies.windows]
 version = "0.62"

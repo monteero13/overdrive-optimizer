@@ -1,12 +1,14 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "The Overdrive window may only relay overdrive.v1 frames and listen to relay events. No shell, no fs, no http.",
+  "description": "The Overdrive window may only relay overdrive.v1 frames, listen to relay events, open a pre-filled issue of the Overdrive repository and download the public presets file. No shell, no fs, no general http.",
   "windows": ["main"],
   "permissions": [
     "core:event:allow-listen",
     "core:event:allow-unlisten",
     "allow-ipc-send",
-    "allow-ipc-status"
+    "allow-ipc-status",
+    "allow-open-issue",
+    "allow-fetch-presets"
   ]
 }

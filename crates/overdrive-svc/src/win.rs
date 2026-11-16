@@ -60,6 +60,12 @@ impl Platform for WinPlatform {
     fn processes(&mut self) -> Vec<ProcInfo> {
         processes::list().unwrap_or_default()
     }
+    fn process_keys(&mut self) -> Option<Vec<(u32, u64)>> {
+        // Only the interactive sessions: services (session 0) are never games.
+        processes::snapshot()
+            .ok()
+            .map(|v| v.into_iter().filter(|p| p.session_id != 0).map(|p| (p.pid, p.start_time)).collect())
+    }
     fn image_path(&mut self, pid: u32) -> Option<String> {
         processes::image_path(pid)
     }

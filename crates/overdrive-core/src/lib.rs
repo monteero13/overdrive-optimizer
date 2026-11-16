@@ -19,6 +19,7 @@ pub mod profile;
 pub mod profiler;
 pub mod safety;
 pub mod session;
+pub mod share;
 pub mod source;
 pub mod synth;
 pub mod telemetry;

@@ -203,6 +203,8 @@ export interface PlanItem {
   technical: string; // exact mechanism, shown in Expert mode
   before: string; // i18n key
   after: string; // i18n key
+  /** Community result for this tweak (only with the community opt-in). */
+  community?: CommunityView;
   /** Expert only: config lines a file patch would change (absent when there are none). */
   preview?: PreviewLine[];
 }
@@ -267,7 +269,17 @@ export type Method =
   | 'report.health'
   | 'prompt.answer'
   | 'settings.set'
-  | 'op.cancel';
+  | 'op.cancel'
+  | 'share.card'
+  | 'share.verifyCard'
+  | 'share.measurements'
+  | 'presets.import'
+  | 'presets.clear'
+  | 'help.request'
+  | 'help.open'
+  | 'help.respond'
+  | 'help.preview'
+  | 'help.apply';
 
 export interface ErrorBody {
   code: string;
@@ -294,4 +306,134 @@ export interface HelloResult {
   bootId: string;
   svcVersion: string;
   protocol: 1;
+}
+
+// ---- Sharing (goals.md §7) ----
+export interface CommunityView {
+  status: 'verified' | 'harmful' | 'pending';
+  installs: number;
+  sameHardware: boolean;
+  /** Only present once enough independent installs agree. */
+  medianDeltaPct: number | null;
+}
+
+export interface HwClass {
+  tier: number;
+  laptop: boolean;
+  gpuVendor: string;
+  class: string;
+}
+
+export interface CardMetrics {
+  avgFps: number;
+  low1: number;
+  stdevMs: number;
+}
+
+export interface ShareCard {
+  schema: number;
+  app: string;
+  gameId: string;
+  game: string;
+  hw: HwClass;
+  bottleneck: string;
+  baselineRuns: number;
+  baseline: CardMetrics;
+  optimized: CardMetrics;
+  baselineSeries: number[];
+  optimizedSeries: number[];
+  kept: string[];
+  day: string;
+}
+
+export interface CardResult {
+  card: ShareCard;
+  code: string;
+  shortId: string;
+  low1DeltaPct: number;
+}
+
+export interface VerifyResult {
+  valid: boolean;
+  card?: ShareCard;
+  shortId?: string;
+  error?: string;
+}
+
+export interface Measurement {
+  schema: number;
+  app: string;
+  gameId: string;
+  hw: HwClass;
+  tweakId: string;
+  verdict: 'kept' | 'no_benefit' | 'harmful';
+  deltaPct: number;
+  ciLow: number;
+  ciHigh: number;
+  runs: number;
+}
+
+export interface MeasurementsResult {
+  count: number;
+  preview: Measurement[];
+  pubkey: string;
+  issueUrl: string;
+}
+
+export interface HelpTweak {
+  id: string;
+  enabled: boolean;
+  history: TweakHistory;
+  lock: string | null;
+}
+
+export interface HelpGame {
+  id: string;
+  name: string;
+  anticheat: 'none' | 'user_mode' | 'kernel';
+  baselineRuns: number;
+  tweaks: HelpTweak[];
+}
+
+export interface HelpRequest {
+  schema: number;
+  app: string;
+  hw: {
+    tier: number;
+    laptop: boolean;
+    cpu: string;
+    gpus: string[];
+    ramGb: number;
+    ramMts: number | null;
+    ramRatedMts: number | null;
+    windowsBuild: number | null;
+  };
+  issues: string[];
+  games: HelpGame[];
+}
+
+export interface HelpReco {
+  gameId: string;
+  enable: string[];
+  disable: string[];
+}
+
+export interface HelpResponse {
+  schema: number;
+  app: string;
+  request: string;
+  games: HelpReco[];
+  note: string;
+}
+
+export interface HelpRequestResult {
+  code: string;
+  shortId: string;
+  preview: HelpRequest;
+}
+
+export interface HelpPreviewResult {
+  response: HelpResponse;
+  changes: number;
+  applied: boolean;
 }

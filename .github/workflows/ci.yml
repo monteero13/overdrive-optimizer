@@ -1,0 +1,60 @@
+# Tests, lints, UI contract tests and the footprint budgets of goals.md §4.3.
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: ui/web/package-lock.json
+
+      - name: UI dependencies
+        working-directory: ui/web
+        run: npm ci
+
+      # The Tauri shell embeds ui/web/dist at compile time: build it before any cargo step.
+      - name: UI build
+        working-directory: ui/web
+        run: npm run build
+
+      - name: Clippy (no warnings allowed)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      # Includes the end-to-end service tests, which regenerate the UI contract fixtures.
+      - name: Rust tests
+        run: cargo test --workspace
+
+      - name: UI tests (contract with the real service, i18n, mock engine)
+        working-directory: ui/web
+        run: npm test
+
+      - name: Footprint budget (idle service < 15 MB, < 0.1 % CPU)
+        shell: pwsh
+        run: |
+          cargo build --release -p overdrive-svc
+          powershell -NoProfile -ExecutionPolicy Bypass -File tools/footprint.ps1 -WarmupSeconds 30 -Seconds 120

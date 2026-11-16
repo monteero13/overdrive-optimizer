@@ -7,6 +7,10 @@
 import type { ServerEndpoint } from '../engine/transport.ts';
 import type {
   EngineSnapshot,
+  HelpRequest,
+  HelpResponse,
+  HwClass,
+  ShareCard,
   ErrorBody,
   GameCard,
   Method,
@@ -252,7 +256,105 @@ export class MockService implements ServerEndpoint {
         this.cancelRequests.add(op.opId);
         return { ok: true };
       }
+      default:
+        return this.share(method, p);
     }
+  }
+
+  // ---- sharing (mock: same shapes as the service; codes are unsigned base64 JSON) ----
+  private helpRequests = new Set<string>();
+
+  private hwClass(): HwClass {
+    const h = this.state.hardware!;
+    return { tier: h.tier, laptop: h.isLaptop, gpuVendor: /nvidia/i.test(h.gpu.value ?? '') ? 'nvidia' : /amd|radeon/i.test(h.gpu.value ?? '') ? 'amd' : 'intel', class: 'mock0000000000' };
+  }
+
+  private share(method: Method, p: Record<string, unknown>): unknown {
+    const enc = (prefix: string, v: unknown) => `${prefix}.${btoa(unescape(encodeURIComponent(JSON.stringify(v))))}`;
+    const dec = <T>(prefix: string, code: unknown): T => {
+      const c = String(code ?? '').replace(/\s+/g, '');
+      if (!c.startsWith(`${prefix}.`)) throw new Fail({ code: 'SHARE', messageKey: 'err.share_bad_code' });
+      try {
+        return JSON.parse(decodeURIComponent(escape(atob(c.slice(prefix.length + 1))))) as T;
+      } catch {
+        throw new Fail({ code: 'SHARE', messageKey: 'err.share_bad_code' });
+      }
+    };
+    const shortId = (code: string) => Array.from(code).reduce((h, ch) => (h * 31 + ch.charCodeAt(0)) >>> 0, 7).toString(16).padStart(8, '0').slice(0, 8);
+    const down = (v: number[]) => (v.length <= 120 ? v : Array.from({ length: 120 }, (_, i) => Math.max(...v.slice(Math.floor((i * v.length) / 120), Math.floor(((i + 1) * v.length) / 120)))));
+    switch (method) {
+      case 'share.card': {
+        const r = this.reports.get(Number(p.txId));
+        if (!r) throw new Fail({ code: 'NOT_FOUND', messageKey: 'err.not_found' });
+        const g = this.state.games.find((x) => x.id === r.gameId);
+        const card: ShareCard = {
+          schema: 1, app: '1.0.0-mock', gameId: r.gameId, game: g?.name ?? r.gameId, hw: this.hwClass(), bottleneck: r.bottleneck, baselineRuns: r.baselineRuns,
+          baseline: { avgFps: r.baseline.avgFps, low1: r.baseline.low1, stdevMs: r.baseline.stdevMs },
+          optimized: { avgFps: r.optimized.avgFps, low1: r.optimized.low1, stdevMs: r.optimized.stdevMs },
+          baselineSeries: down(r.baselineSeries), optimizedSeries: down(r.optimizedSeries),
+          kept: r.tweaks.filter((t) => t.verdict === 'kept').map((t) => t.tweakId).sort(),
+          day: new Date(r.endedAt).toISOString().slice(0, 10),
+        };
+        const code = enc('ODC1', card);
+        return { card, code, shortId: shortId(code), low1DeltaPct: Math.round(((card.optimized.low1 - card.baseline.low1) / card.baseline.low1) * 1000) / 10 };
+      }
+      case 'share.verifyCard':
+        try {
+          return { valid: true, card: dec<ShareCard>('ODC1', p.code), shortId: shortId(String(p.code)) };
+        } catch {
+          return { valid: false, error: 'err.share_bad_code' };
+        }
+      case 'share.measurements': {
+        const preview = [...this.history].filter(([, h]) => h.verdict !== 'inconclusive').map(([k, h]) => {
+          const [tweakId, gameId] = k.split('|');
+          return { schema: 1, app: '1.0.0-mock', gameId, hw: this.hwClass(), tweakId, verdict: h.verdict, deltaPct: h.deltaPct, ciLow: h.deltaPct - 3, ciHigh: h.deltaPct + 3, runs: h.runs };
+        });
+        if (!preview.length) throw new Fail({ code: 'SHARE', messageKey: 'err.share_not_measured' });
+        const body = encodeURIComponent(`\`\`\`\n${enc('ODM1', preview)}\n\`\`\``);
+        return { count: preview.length, preview, pubkey: 'mock'.padEnd(64, '0'), issueUrl: `https://github.com/monteero13/overdrive-optimizer/issues/new?title=%5Boverdrive-measurement%5D&body=${body}` };
+      }
+      case 'presets.import':
+        return { presets: Array.isArray((p.file as { presets?: unknown[] })?.presets) ? (p.file as { presets: unknown[] }).presets.length : 0 };
+      case 'presets.clear':
+        return { ok: true };
+      case 'help.request': {
+        const h = this.state.hardware!;
+        const preview: HelpRequest = {
+          schema: 1, app: '1.0.0-mock',
+          hw: { tier: h.tier, laptop: h.isLaptop, cpu: (h.cpu.value ?? '').split(' · ')[0], gpus: [h.gpu.value ?? '', h.gpuSecondary?.value ?? ''].filter(Boolean).map((x) => x.split(' · ')[0]), ramGb: h.ramGb.value ?? 0, ramMts: h.ramSpeed.value?.configured ?? null, ramRatedMts: h.ramSpeed.value?.rated ?? null, windowsBuild: 26100 },
+          issues: [],
+          games: this.state.games.map((g) => ({ id: g.id, name: g.name, anticheat: g.antiCheat === 'none' ? 'none' : g.antiCheat === 'kernel' ? 'kernel' : 'user_mode', baselineRuns: g.measured ? 3 : 0, tweaks: this.plan(g.id).items.map((i) => ({ id: i.tweakId, enabled: i.enabled, history: i.history, lock: i.lock })) })),
+        };
+        const code = enc('ODH1', preview);
+        this.helpRequests.add(shortId(code));
+        return { code, shortId: shortId(code), preview };
+      }
+      case 'help.open':
+        return { request: dec<HelpRequest>('ODH1', p.code), shortId: shortId(String(p.code)) };
+      case 'help.respond': {
+        const code = String(p.requestCode ?? '');
+        dec<HelpRequest>('ODH1', code);
+        const response: HelpResponse = { schema: 1, app: '1.0.0-mock', request: shortId(code), games: (p.games as HelpResponse['games']) ?? [], note: String(p.note ?? '').slice(0, 280) };
+        return { code: enc('ODR1', response), response };
+      }
+      case 'help.preview':
+      case 'help.apply': {
+        const response = dec<HelpResponse>('ODR1', p.code);
+        if (!this.helpRequests.has(response.request)) throw new Fail({ code: 'SHARE', messageKey: 'err.help_unknown_request' });
+        const changes = response.games.reduce((n, g) => n + g.enable.length + g.disable.length, 0);
+        if (method === 'help.apply') {
+          for (const g of response.games) {
+            if (!this.state.games.some((x) => x.id === g.gameId)) continue;
+            for (const id of g.enable) this.gameToggles(g.gameId).set(id, true);
+            for (const id of g.disable) this.gameToggles(g.gameId).set(id, false);
+          }
+          this.refreshFixCounts();
+          this.commit('games');
+        }
+        return { response, changes, applied: method === 'help.apply' };
+      }
+    }
+    throw new Fail({ code: 'UNKNOWN_METHOD', messageKey: 'err.internal' });
   }
 
   private gameId(p: Record<string, unknown>): string {

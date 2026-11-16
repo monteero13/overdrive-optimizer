@@ -33,6 +33,9 @@ use crate::platform::{Capture, LibraryGame, Platform};
 use crate::proto::*;
 use crate::store::{CoachRecord, Reports, Store};
 
+mod sharing;
+pub use sharing::{day, COMMUNITY_REPO};
+
 pub type ConnId = u64;
 
 #[derive(Debug, Clone, PartialEq)]
@@ -49,12 +52,18 @@ pub struct Config {
     pub allow_reboot: bool,
 }
 
+/// Process watch: every 2 s while a game runs (exit detection), every 3 s when idle (a
+/// cheap snapshot; the full scan only runs when something changed). §4.3 idle budget.
 const WATCH_MS: i64 = 2_000;
+const WATCH_IDLE_MS: i64 = 3_000;
 const HUD_MS: i64 = 500;
 const DRIFT_MS: i64 = 6 * 3_600_000;
 const LIBRARY_MS: i64 = 10 * 60_000;
 const USER_MS: i64 = 30_000;
-const REFRESH_MS: i64 = 60_000;
+/// Safety net for changes made outside Overdrive (the UI also refreshes on connect, and
+/// everything Overdrive itself changes refreshes immediately). Rebuilding the game cards
+/// reads the registry and config files for every game: not something to do every minute.
+const REFRESH_MS: i64 = 10 * 60_000;
 const WATCH_DAYS_MS: i64 = 3 * 86_400_000;
 
 #[derive(Debug)]
@@ -205,6 +214,8 @@ pub struct Core {
     user_root: RegRoot,
     /// The interactive user's folders (game config files), refreshed with the user.
     user_dirs: UserDirs,
+    /// Per-install signing key for shared payloads (cards, measurements, help codes).
+    identity: overdrive_core::share::Identity,
     profile: Option<HardwareProfile>,
     issues: Vec<StructuralIssue>,
     library: Vec<LibraryGame>,
@@ -218,6 +229,11 @@ pub struct Core {
     games_cache: Option<Vec<GameCard>>,
     /// (pid, start_time) → game id or None (not a game): image paths are looked up once.
     seen: HashMap<(u32, u64), Option<String>>,
+    /// Idle footprint (§4.3): process identities at the last full scan, and when each was
+    /// first noticed. The expensive scan (windows, audio sessions) only runs when this
+    /// changes or a recent process hasn't been identified yet.
+    last_keys: HashSet<(u32, u64)>,
+    first_seen: HashMap<(u32, u64), i64>,
     t_watch: i64,
     t_hud: i64,
     t_drift: i64,
@@ -239,6 +255,7 @@ impl Core {
         let store = Store::load(&cfg.data_dir.join("state.json"));
         let reports = Reports::new(cfg.data_dir.join("reports"));
         let user_root = platform.user_root();
+        let cfg_dir = cfg.data_dir.clone();
         let now = platform.now_ms();
         let mut core = Self {
             cfg,
@@ -251,6 +268,7 @@ impl Core {
             settings: ExperimentSettings::default(),
             user_root,
             user_dirs: UserDirs::default(),
+            identity: sharing::load_identity(&cfg_dir),
             profile: None,
             issues: vec![],
             library: vec![],
@@ -263,6 +281,8 @@ impl Core {
             out: vec![],
             games_cache: None,
             seen: HashMap::new(),
+            last_keys: HashSet::new(),
+            first_seen: HashMap::new(),
             t_watch: 0,
             t_hud: 0,
             t_drift: now,
@@ -617,6 +637,7 @@ impl Core {
                 _ => vec![],
             };
             items.push(PlanItem {
+                community: self.community(game_id, &m.id),
                 preview,
                 tweak_id: m.id.clone(),
                 scope: s(&m.scope),
@@ -1198,6 +1219,7 @@ impl Core {
                 self.save();
                 Ok(v(&self.store.settings))
             }
+            m if m.starts_with("share.") || m.starts_with("help.") || m.starts_with("presets.") => self.sharing(m, p),
             "op.cancel" => {
                 let id = Self::str_param(p, "opId", 64)?;
                 if self.ops.iter().any(|o| o.op_id == id) {
@@ -1432,7 +1454,7 @@ impl Core {
             self.games_cache = None;
             changed = true;
         }
-        if now - self.t_watch >= WATCH_MS {
+        if now - self.t_watch >= if self.live.is_some() { WATCH_MS } else { WATCH_IDLE_MS } {
             self.t_watch = now;
             changed |= self.watch();
         }
@@ -1459,7 +1481,35 @@ impl Core {
     }
 
     /// Detect a game starting or exiting. Returns true if something changed.
+    /// Cheap pre-check before the full process scan: did any process start or exit, or is
+    /// a recent one (< 90 s, it may not have opened its window yet) still unidentified?
+    /// Platforms without a cheap listing always say "changed".
+    fn processes_changed(&mut self) -> bool {
+        const YOUNG_MS: i64 = 90_000;
+        let Some(keys) = self.platform.process_keys() else {
+            return true;
+        };
+        let now = self.platform.now_ms();
+        let set: HashSet<(u32, u64)> = keys.into_iter().collect();
+        self.first_seen.retain(|k, _| set.contains(k));
+        for k in &set {
+            // Processes already running at the first look are not "new": one full scan covers them.
+            let born = if self.last_keys.is_empty() { now - YOUNG_MS } else { now };
+            self.first_seen.entry(*k).or_insert(born);
+        }
+        let young = self
+            .first_seen
+            .iter()
+            .any(|(k, t)| now - t < YOUNG_MS && !self.seen.contains_key(k));
+        let changed = set != self.last_keys;
+        self.last_keys = set;
+        changed || young
+    }
+
     fn watch(&mut self) -> bool {
+        if self.live.is_none() && !self.processes_changed() {
+            return false;
+        }
         let procs = self.platform.processes();
         if let Some(l) = &self.live {
             let alive = procs
@@ -1474,10 +1524,11 @@ impl Core {
         let present: HashSet<(u32, u64)> = procs.iter().map(|p| (p.process.pid, p.process.start_time)).collect();
         self.seen.retain(|k, _| present.contains(k));
         for p in &procs {
-            if p.session_id == 0 || !p.has_visible_window || is_helper_exe(&p.process.image) {
+            let key = (p.process.pid, p.process.start_time);
+            if p.session_id == 0 || is_helper_exe(&p.process.image) {
+                self.seen.entry(key).or_insert(None); // never a game: resolved
                 continue;
             }
-            let key = (p.process.pid, p.process.start_time);
             let hit = match self.seen.get(&key) {
                 Some(v) => v.clone(),
                 None => {
@@ -1489,6 +1540,14 @@ impl Core {
                             .or_else(|| self.library.iter().find(|g| under(&path, &g.install_dir)))
                             .map(|g| (g.id.clone(), path))
                     });
+                    if !p.has_visible_window {
+                        // Not a game: resolved for good (no more full scans for it). A game
+                        // without its window yet stays pending until the window shows up.
+                        if g.is_none() {
+                            self.seen.insert(key, None);
+                        }
+                        continue;
+                    }
                     if let Some((id, path)) = &g {
                         self.store.learned_exe.insert(id.clone(), path.clone());
                     }
@@ -1497,6 +1556,9 @@ impl Core {
                     id
                 }
             };
+            if !p.has_visible_window {
+                continue;
+            }
             if let Some(game_id) = hit {
                 self.start_session(&game_id, p.clone(), &procs);
                 return true;
@@ -1588,6 +1650,8 @@ impl Core {
 
     fn end_session(&mut self) {
         let Some(mut l) = self.live.take() else { return };
+        // Process state seen before/while playing is stale now: next idle look = full scan.
+        self.last_keys.clear();
         if let Some(c) = l.capture.as_mut() {
             l.frames.extend(c.poll());
         }

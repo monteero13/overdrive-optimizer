@@ -4,12 +4,25 @@ import { RequestError, type EngineClient } from '../engine/client.ts';
 import { setLocale, t } from '../i18n/index.ts';
 import type { MockService } from '../mock/service.ts';
 import type { PresetId } from '../mock/presets.ts';
-import type { EngineSnapshot, PlanPreview, SessionReport, Settings } from '../proto/types.ts';
+import { fetchPresets, openIssue } from '../engine/tauri.ts';
+import type {
+  CardResult,
+  EngineSnapshot,
+  HelpPreviewResult,
+  HelpRequest,
+  HelpRequestResult,
+  MeasurementsResult,
+  PlanPreview,
+  SessionReport,
+  Settings,
+  VerifyResult,
+} from '../proto/types.ts';
 import { patch } from './dom.ts';
 import { bindMagnetic } from './magnetic.ts';
 import { banner, coachModal, confirmModal, devPanel, hud, opModal, promptsAndToasts, settingsModal, topbar, tray } from './overlays.ts';
 import { Pulse } from './pulse.ts';
 import { reportView, wireReportChart } from './report.ts';
+import { cardSvg, downloadPng, shareModal, type ShareState } from './share.ts';
 import { initialUi, type UiState } from './state.ts';
 import { gamesView, historyView, pcView } from './views.ts';
 
@@ -26,6 +39,8 @@ export class App {
   private lastTheme = '';
   private client: EngineClient;
   private mock: MockService | null;
+  /** Community presets downloaded for the current opt-in state. */
+  private communityLoaded = false;
 
   constructor(root: HTMLElement, client: EngineClient, mock: MockService | null) {
     this.client = client;
@@ -36,6 +51,7 @@ export class App {
     this.regions = { top: q('top'), main: q('main'), over: q('over'), hud: q('hud'), dev: q('dev') };
     root.addEventListener('click', (e) => this.onClick(e));
     root.addEventListener('change', (e) => this.onChange(e));
+    root.addEventListener('input', (e) => this.onInput(e));
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') this.closeTopmost();
     });
@@ -74,6 +90,7 @@ export class App {
     if (!this.ui.selected || !s.games.some((g) => g.id === this.ui.selected)) this.ui.selected = s.games[0]?.id ?? null;
     if (s.activeSession && this.ui.view === 'games') this.ui.selected = s.activeSession.gameId;
     if (this.ui.coachOpen && !s.coach) this.ui.coachOpen = false;
+    this.syncCommunity(s);
     // Elapsed-time ticker only while operations exist.
     if (s.operations.length && !this.ticker) this.ticker = setInterval(() => this.renderOverlays(), 1000);
     if (!s.operations.length && this.ticker) {
@@ -126,6 +143,7 @@ export class App {
       s && this.ui.report ? reportView(s, this.ui.report, this.ui.reportTable) : '',
       coachModal(s, this.ui),
       settingsModal(s, this.ui),
+      shareModal(s, this.ui.share, this.ui.shareInput),
       confirmModal(this.ui),
       opModal(s),
       promptsAndToasts(s, this.ui),
@@ -199,8 +217,34 @@ export class App {
     this.regions.over.querySelector<HTMLElement>('[data-key="close-report"]')?.focus();
   }
 
+  private openShare(st: ShareState): void {
+    this.ui.report = null; // one dialog at a time
+    this.ui.share = st;
+    this.ui.shareInput = '';
+    this.renderOverlays();
+    this.regions.over.querySelector<HTMLElement>('[data-key="share-close"]')?.focus();
+  }
+
+  /** Community presets: downloaded only while the user has the opt-in on. */
+  private syncCommunity(s: EngineSnapshot): void {
+    const want = s.settings.telemetryOptIn;
+    if (want === this.communityLoaded) return;
+    this.communityLoaded = want;
+    if (!want) {
+      void this.call('presets.clear');
+      return;
+    }
+    fetchPresets()
+      .then((file) => this.call('presets.import', { file }))
+      .then(() => (this.ui.planOpen ? this.loadPlan() : undefined))
+      .catch(() => {
+        this.communityLoaded = false; // offline / not published yet: try again next time
+      });
+  }
+
   private closeTopmost(): void {
     if (this.ui.confirm) this.ui.confirm = null;
+    else if (this.ui.share) this.ui.share = null;
     else if (this.ui.report) this.ui.report = null;
     else if (this.ui.coachOpen) this.ui.coachOpen = false;
     else if (this.ui.settingsOpen) this.ui.settingsOpen = false;
@@ -210,6 +254,13 @@ export class App {
   }
 
   // ------------------------------------------------------------ actions
+  /** Pasted codes and notes live in UiState: a re-render replaces the DOM. */
+  private onInput(e: Event): void {
+    const el = e.target as HTMLTextAreaElement;
+    if (el.dataset.input === 'share') this.ui.shareInput = el.value;
+    else if (el.dataset.input === 'note' && this.ui.share?.kind === 'help-friend') this.ui.share.note = el.value.slice(0, 280);
+  }
+
   private onChange(e: Event): void {
     const el = e.target as HTMLInputElement | HTMLSelectElement;
     const action = el.dataset.action;
@@ -236,7 +287,8 @@ export class App {
     // Clicking inside a dialog must not trigger its scrim's close action.
     if (action.endsWith('-scrim')) {
       if (target.closest('[data-stop]')) return;
-      this.ui[action === 'close-report-scrim' ? 'report' : action === 'close-coach-scrim' ? 'coachOpen' : 'settingsOpen'] = (action === 'close-report-scrim' ? null : false) as never;
+      if (action === 'close-share-scrim') this.ui.share = null;
+      else this.ui[action === 'close-report-scrim' ? 'report' : action === 'close-coach-scrim' ? 'coachOpen' : 'settingsOpen'] = (action === 'close-report-scrim' ? null : false) as never;
       return this.render();
     }
     if (el instanceof HTMLInputElement || el instanceof HTMLSelectElement) return; // handled by change
@@ -353,6 +405,97 @@ export class App {
         this.ui.trayOpen = false;
         this.ui.view = 'games';
         return this.render();
+      // ---- sharing (goals.md §7) ----
+      case 'share-card':
+        void this.call<CardResult>('share.card', { txId: Number(id) }).then((d) => d && this.openShare({ kind: 'card', data: d }));
+        return;
+      case 'share-measurements':
+        void this.call<MeasurementsResult>('share.measurements').then((d) => d && this.openShare({ kind: 'measurements', data: d }));
+        return;
+      case 'help-request':
+        void this.call<HelpRequestResult>('help.request').then((d) => d && this.openShare({ kind: 'help-request', data: d }));
+        return;
+      case 'help-apply-open':
+        return this.openShare({ kind: 'help-apply', preview: null, done: false });
+      case 'help-friend-open':
+        return this.openShare({ kind: 'help-friend', request: null, toggles: {}, note: '', responseCode: null });
+      case 'verify-open':
+        return this.openShare({ kind: 'verify', result: null });
+      case 'share-close':
+        this.ui.share = null;
+        return this.render();
+      case 'share-copy':
+        void navigator.clipboard.writeText(value ?? '').then(
+          () => this.toast('good', t('share.copied')),
+          () => this.toast('bad', t('err.internal')),
+        );
+        return;
+      case 'share-png': {
+        const st = this.ui.share;
+        if (st?.kind !== 'card') return;
+        const d = st.data;
+        void downloadPng(cardSvg(d.card, d.shortId, d.low1DeltaPct), `overdrive-${d.card.game.replace(/[^\w-]+/g, '_')}-${d.shortId}.png`);
+        return;
+      }
+      case 'share-submit': {
+        const st = this.ui.share;
+        if (st?.kind !== 'measurements') return;
+        void openIssue(st.data.issueUrl).catch(() => this.toast('bad', t('err.internal')));
+        return;
+      }
+      case 'verify-card':
+        void this.call<VerifyResult>('share.verifyCard', { code: this.ui.shareInput }).then((r) => {
+          if (r && this.ui.share?.kind === 'verify') {
+            this.ui.share = { kind: 'verify', result: r };
+            this.renderOverlays();
+          }
+        });
+        return;
+      case 'help-load':
+        void this.call<{ request: HelpRequest }>('help.open', { code: this.ui.shareInput }).then((r) => {
+          const st = this.ui.share;
+          if (r && st?.kind === 'help-friend') {
+            this.ui.share = { ...st, request: r.request, toggles: {}, responseCode: null };
+            this.ui.shareRequestCode = this.ui.shareInput;
+            this.renderOverlays();
+          }
+        });
+        return;
+      case 'help-toggle': {
+        const st = this.ui.share;
+        if (st?.kind !== 'help-friend' || !st.request || !id || !value) return;
+        const tw = st.request.games.find((g) => g.id === id)?.tweaks.find((x) => x.id === value);
+        if (!tw || tw.lock) return;
+        const cur = st.toggles[id]?.[value] ?? tw.enabled;
+        st.toggles = { ...st.toggles, [id]: { ...st.toggles[id], [value]: !cur } };
+        st.responseCode = null;
+        return this.renderOverlays();
+      }
+      case 'help-generate': {
+        const st = this.ui.share;
+        if (st?.kind !== 'help-friend' || !st.request) return;
+        const games = st.request.games.map((g) => {
+          const ch = Object.entries(st.toggles[g.id] ?? {}).filter(([tid, on]) => g.tweaks.find((x) => x.id === tid)?.enabled !== on);
+          return { gameId: g.id, enable: ch.filter(([, on]) => on).map(([tid]) => tid), disable: ch.filter(([, on]) => !on).map(([tid]) => tid) };
+        });
+        void this.call<{ code: string }>('help.respond', { requestCode: this.ui.shareRequestCode, games, note: st.note }).then((r) => {
+          if (r && this.ui.share?.kind === 'help-friend') {
+            this.ui.share = { ...this.ui.share, responseCode: r.code };
+            this.renderOverlays();
+          }
+        });
+        return;
+      }
+      case 'help-preview':
+      case 'help-apply':
+        void this.call<HelpPreviewResult>(action === 'help-apply' ? 'help.apply' : 'help.preview', { code: this.ui.shareInput }).then((r) => {
+          if (r && this.ui.share?.kind === 'help-apply') {
+            this.ui.share = { kind: 'help-apply', preview: r, done: r.applied };
+            if (r.applied && this.ui.planOpen) void this.loadPlan();
+            this.renderOverlays();
+          }
+        });
+        return;
       // ---- dev (mock only) ----
       case 'dev-toggle':
         e.preventDefault();

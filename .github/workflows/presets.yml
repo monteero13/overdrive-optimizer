@@ -1,0 +1,57 @@
+# Community presets (goals.md §7): users share A/B measurements by opening a pre-filled
+# issue whose title starts with "[overdrive-measurement]". This workflow verifies every
+# signature, counts each install once and publishes presets/community.json, which the app
+# downloads only when the user opted in.
+#
+# Moderation: closing an issue removes its measurements from the next aggregation.
+name: Community presets
+
+on:
+  issues:
+    types: [opened, edited, reopened, closed, deleted]
+  schedule:
+    - cron: "17 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: read
+
+concurrency:
+  group: presets
+  cancel-in-progress: false
+
+jobs:
+  aggregate:
+    if: github.event_name != 'issues' || startsWith(github.event.issue.title, '[overdrive-measurement]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Download open measurement issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh api --paginate "repos/${{ github.repository }}/issues?state=open&per_page=100" > issues.json
+
+      # Pure Rust, no Windows APIs: the same code the app uses to verify signatures.
+      - name: Aggregate
+        run: cargo run --quiet -p overdrive-core --example presets -- issues.json new.json "$(date -u +%F)"
+
+      - name: Publish if the presets changed
+        run: |
+          if [ -f presets/community.json ] && [ "$(jq -S .presets presets/community.json)" = "$(jq -S .presets new.json)" ]; then
+            echo "no change"
+            exit 0
+          fi
+          mkdir -p presets
+          mv new.json presets/community.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add presets/community.json
+          git commit -m "chore(presets): update community presets"
+          git push

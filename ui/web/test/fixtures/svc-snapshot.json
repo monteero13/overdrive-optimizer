@@ -324,7 +324,7 @@
       16.26
     ],
     "bottleneck": "gpu_bound",
-    "endedAt": 1760000028500,
+    "endedAt": 1760000035500,
     "gameId": "steam:367520",
     "gameplaySecs": 70.3,
     "optimized": {
@@ -589,7 +589,7 @@
   },
   "snapshot": {
     "activeSession": null,
-    "bootId": "18e89bcedce754f8-3588-dc2bbf3c70",
+    "bootId": "18e89f4b952fc980-21fc-fe598f3190",
     "coach": null,
     "games": [
       {
@@ -719,7 +719,7 @@
     "operations": [],
     "persistentChanges": [
       {
-        "since": 1794855764862,
+        "since": 1794859598992,
         "source": "user_accept",
         "tweakId": "hybrid_gpu"
       }
@@ -768,19 +768,19 @@
     },
     "reports": [
       {
-        "endedAt": 1760000028500,
+        "endedAt": 1760000035500,
         "gameId": "steam:367520",
         "low1DeltaPct": 31.9,
         "txId": 6
       },
       {
-        "endedAt": 1760000024500,
+        "endedAt": 1760000028500,
         "gameId": "steam:367520",
         "low1DeltaPct": 24.1,
         "txId": 5
       },
       {
-        "endedAt": 1760000018500,
+        "endedAt": 1760000023500,
         "gameId": "steam:367520",
         "low1DeltaPct": 24.8,
         "txId": 4

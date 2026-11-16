@@ -38,7 +38,8 @@ export function reportView(s: EngineSnapshot, r: SessionReport, table: boolean):
       <div class="dialog-head">
         <div><p class="section-title">${tx('report.title')}</p><h2 id="rep-title">${esc(g?.name ?? r.gameId)}</h2>
           <div class="muted" style="font-size:13px;margin-top:2px">${tx('report.vs', { n: r.baselineRuns })}</div></div>
-        <button class="btn" data-action="close-report" data-key="close-report">${tx('report.close')}</button>
+        <div style="display:flex;gap:8px"><button class="btn" data-action="share-card" data-id="${r.txId}" data-key="share-card">${tx('share.card.btn')}</button>
+        <button class="btn" data-action="close-report" data-key="close-report">${tx('report.close')}</button></div>
       </div>
       <div class="grid cols-4">
         ${tile('report.low1', B.low1, A.low1, 'FPS', true, 'report.low1.hint')}

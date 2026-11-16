@@ -1,6 +1,7 @@
 // Main views. Pure functions: (engine snapshot + local UI state) → HTML.
 import { date, has, pct, t, tweakTitle } from '../i18n/index.ts';
-import type { EngineSnapshot, GameCard, PlanItem, PlanPreview, PreviewLine, StructuralIssue } from '../proto/types.ts';
+import type { CommunityView, EngineSnapshot, GameCard, PlanItem, PlanPreview, PreviewLine, StructuralIssue } from '../proto/types.ts';
+import { shareSection } from './share.ts';
 import { attr, esc, initials, tx } from './dom.ts';
 import type { UiState } from './state.ts';
 
@@ -125,6 +126,14 @@ function planView(s: EngineSnapshot, plan: PlanPreview | null, g: GameCard): str
   </section>`;
 }
 
+/** What other installs measured. A gain only appears once enough of them agree. */
+function communityChip(c: CommunityView): string {
+  const scope = tx(c.sameHardware ? 'community.same_hw' : 'community.similar_hw');
+  if (c.status === 'pending') return `<span class="chip">${tx('community.pending', { n: c.installs })}</span>`;
+  const cls = c.status === 'verified' ? 'good' : 'bad';
+  return `<span class="chip ${cls}" title="${scope}">${tx(`community.${c.status}`, { n: c.installs, delta: c.medianDeltaPct === null ? '' : pct(c.medianDeltaPct) })}</span>`;
+}
+
 /** Expert preview: exactly which lines of which file would change (goals.md §5.5). */
 function previewDiff(lines: PreviewLine[]): string {
   const byFile = new Map<string, PreviewLine[]>();
@@ -152,6 +161,7 @@ function planRow(i: PlanItem, expert: boolean): string {
     expert ? `<span class="chip ${i.risk === 'low' ? '' : 'warn'}">${tx(`risk.${i.risk}`)}</span>` : '',
     expert ? `<span class="chip ${i.evidence === 'disputed' ? 'warn' : ''}">${tx(`evidence.${i.evidence}`)}</span>` : '',
     i.requiresReboot ? `<span class="chip warn">${tx('plan.reboot')}</span>` : '',
+    i.community ? communityChip(i.community) : '',
   ].join('');
   return `
   <div class="plan-row${i.lock ? ' locked' : ''}">
@@ -255,7 +265,7 @@ function issueRow(s: EngineSnapshot, i: StructuralIssue): string {
 
 // ------------------------------------------------------------------ History
 export function historyView(s: EngineSnapshot): string {
-  if (!s.reports.length) return `<div class="card pad empty">${tx('report.empty')}</div>`;
+  if (!s.reports.length) return `<div class="card pad empty">${tx('report.empty')}</div>${shareSection(s)}`;
   return `<section class="card pad"><p class="section-title">${tx('nav.history')}</p>
   ${s.reports
     .map((r) => {
@@ -267,5 +277,5 @@ export function historyView(s: EngineSnapshot): string {
           <button class="btn" data-action="open-report" data-id="${r.txId}" data-key="rep-${r.txId}">${tx('report.title')} →</button></div>
       </div>`;
     })
-    .join('')}</section>`;
+    .join('')}</section>${shareSection(s)}`;
 }

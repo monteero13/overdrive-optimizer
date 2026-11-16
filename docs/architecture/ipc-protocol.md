@@ -57,6 +57,14 @@
 | `foreign.restoreDefaults` | `{ foreignTweakId }` | `{ opId }` | Deshacer tweaks dañinos de otras herramientas |
 | `settings.get` / `settings.set` | `{ mode?, telemetryOptIn?, … }` | `Settings` | |
 | `op.cancel` | `{ opId }` | `ok` | Solo si la op es cancelable; cancelar = revertir lo hecho |
+| `share.card` | `{ txId }` | `{ card, code, shortId, low1DeltaPct }` | Tarjeta antes/después firmada; solo desde un informe medido |
+| `share.verifyCard` | `{ code }` | `{ valid, card?, shortId?, error? }` | Comprueba que una tarjeta no se ha retocado |
+| `share.measurements` | `{}` | `{ count, preview, pubkey, issueUrl }` | Veredictos A/B finales firmados + URL del issue prerrellenado. El servicio **no envía nada**: el usuario abre la URL y pulsa "Submit" en GitHub |
+| `presets.import` / `presets.clear` | `{ file }` / `{}` | `{ presets }` | La UI descarga `presets/community.json` (solo con el opt-in) y se lo pasa al servicio |
+| `help.request` | `{}` | `{ code, shortId, preview }` | Diagnóstico anonimizado para un amigo |
+| `help.open` | `{ code }` | `{ request, shortId }` | El amigo (modo Experto) abre la petición |
+| `help.respond` | `{ requestCode, games, note }` | `{ code, response }` | Solo puede activar/desactivar lo que el plan del otro ya ofrecía |
+| `help.preview` / `help.apply` | `{ code }` | `{ response, changes, applied }` | Se rechaza si no responde a una petición hecha desde este PC |
 
 ### Eventos
 
@@ -96,4 +104,5 @@ Reglas:
 ## 5. Entre la UI web y el núcleo de Tauri
 
 - El WebView solo habla con `src-tauri` mediante comandos de Tauri con lista blanca y la *capability* mínima. No se habilitan los plugins `shell` ni `fs`.
+- Comandos: `ipc_send`, `ipc_status`, `open_issue` (solo abre URLs `https://github.com/<repo>/issues/new?…` con caracteres de URL codificada) y `fetch_presets` (solo descarga el archivo fijo de presets, máximo 2 MB). **El servicio nunca usa la red.**
 - `src-tauri` es un **relé**: mantiene una conexión al pipe, reenvía peticiones y emite eventos al WebView. Cuando se destruye la ventana, la conexión sigue viva para el tray.

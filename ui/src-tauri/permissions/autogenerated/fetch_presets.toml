@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-fetch-presets"
+description = "Enables the fetch_presets command without any pre-configured scope."
+commands.allow = ["fetch_presets"]
+
+[[permission]]
+identifier = "deny-fetch-presets"
+description = "Denies the fetch_presets command without any pre-configured scope."
+commands.deny = ["fetch_presets"]

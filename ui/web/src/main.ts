@@ -53,6 +53,12 @@ async function demo(q: URLSearchParams, service: MockService, client: EngineClie
     if (q.get('report')) service.closeGame();
   }
   if (q.get('view')) click(`[data-action="nav"][data-id="${q.get('view')}"]`);
+  // ?report=1&share=card opens the share dialog of that report.
+  if (q.get('share') === 'card') {
+    for (let i = 0; i < 100 && !document.querySelector('[data-action="share-card"]'); i++) await wait(100);
+    click('[data-action="share-card"]');
+  }
+  if (q.get('share') === 'help') click('[data-action="help-request"]');
   if (q.get('coach')) {
     const issue = client.snapshot.issues.find((i) => i.fixableBy.kind === 'bios');
     if (issue) click(`[data-action="open-coach"][data-id="${issue.id}"]`);

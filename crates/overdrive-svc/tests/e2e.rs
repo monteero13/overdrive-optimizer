@@ -153,6 +153,10 @@ impl Platform for FakePlatform {
         }
         v
     }
+    // The cheap pre-check path, like the real platform (start/stop detection must still work).
+    fn process_keys(&mut self) -> Option<Vec<(u32, u64)>> {
+        Some(self.processes().iter().map(|p| (p.process.pid, p.process.start_time)).collect())
+    }
     fn image_path(&mut self, pid: u32) -> Option<String> {
         match pid {
             GAME_PID => Some(EXE.into()),
@@ -270,7 +274,7 @@ impl Ui {
     /// Launch, play (frames come from the capture), quit.
     fn play(&mut self) {
         self.world.game_running.set(true);
-        self.advance(2_500);
+        self.advance(3_500); // idle watch runs every 3 s (footprint budget, §4.3)
         assert_eq!(self.core.live_game(), Some("steam:367520"), "game detected");
         let s = self.snap();
         assert_eq!(s["activeSession"]["gameId"], "steam:367520");
@@ -461,4 +465,164 @@ fn toggles_and_settings_are_validated_and_persisted() {
     assert!(p["items"].as_array().unwrap().iter().any(|i| i["tweakId"] == "hybrid_gpu" && i["enabled"] == false));
     let _ = HashSet::<u8>::new();
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A service that has measured Hollow Knight until the A/B protocol reached a verdict.
+fn measured(name: &str) -> (Ui, Rc<FakeSystem>, PathBuf) {
+    let dir = tmp(name);
+    let sys = Rc::new(FakeSystem::new(original()));
+    let w = world(&sys);
+    let mut ui = Ui::new(&dir, w, sys.clone());
+    ui.call("hello", json!({ "uiVersion": "t", "locale": "es" })).unwrap();
+    ui.op("session.benchmark", json!({ "gameId": "steam:367520" }));
+    for _ in 0..3 {
+        ui.play();
+    }
+    for _ in 0..30 {
+        ui.op("session.optimize", json!({ "gameId": "steam:367520" }));
+        ui.play();
+        if ui.snap()["prompts"].as_array().unwrap().iter().any(|p| p["kind"] == "keep_persistent") {
+            break;
+        }
+    }
+    (ui, sys, dir)
+}
+
+/// Every string (keys included) in a payload, recursively.
+fn strings(v: &Value, out: &mut Vec<String>) {
+    match v {
+        Value::String(s) => out.push(s.clone()),
+        Value::Array(a) => a.iter().for_each(|x| strings(x, out)),
+        Value::Object(o) => o.iter().for_each(|(k, x)| {
+            out.push(k.clone());
+            strings(x, out)
+        }),
+        _ => {}
+    }
+}
+
+fn assert_redacted(what: &str, v: &Value) {
+    let mut all = Vec::new();
+    strings(v, &mut all);
+    for s in &all {
+        let l = s.to_ascii_lowercase();
+        assert!(
+            !l.contains('\\') && !l.contains("users") && !l.contains("appdata") && !l.contains(".exe") && !l.contains("discord") && !l.contains("chrome"),
+            "{what} leaks a path, user, exe or process name: {s:?}"
+        );
+    }
+}
+
+fn percent_decode(s: &str) -> String {
+    let b = s.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            out.push(u8::from_str_radix(&s[i + 1..i + 3], 16).unwrap());
+            i += 3;
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).unwrap()
+}
+
+#[test]
+fn sharing_through_the_protocol() {
+    let (mut ui, sys, dir) = measured("share");
+    let before = sys.snapshot();
+
+    // Frametime card: only from a measured report, signed, verifiable, redacted.
+    let tx = ui.snap()["reports"][0]["txId"].as_i64().unwrap();
+    let card = ui.call("share.card", json!({ "txId": tx })).unwrap();
+    assert_redacted("card", &card["card"]);
+    assert!(card["card"]["baselineSeries"].as_array().unwrap().len() <= 120);
+    assert_eq!(card["card"]["game"], "Hollow Knight");
+    let v = ui.call("share.verifyCard", json!({ "code": card["code"] })).unwrap();
+    assert_eq!((v["valid"].as_bool(), v["shortId"].as_str()), (Some(true), card["shortId"].as_str()));
+    // Change the end of the code → rejected (bad signature or not decodable).
+    let code = card["code"].as_str().unwrap();
+    let forged = format!("{}{}", &code[..code.len() - 6], if code.ends_with('A') { "BBBBBB" } else { "AAAAAA" });
+    assert_eq!(ui.call("share.verifyCard", json!({ "code": forged })).unwrap()["valid"], false);
+    assert_eq!(ui.call("share.card", json!({ "txId": 999_999 })).unwrap_err()["code"], "NOT_FOUND");
+
+    // Measurements for community presets: final verdicts only; the preview is what is sent.
+    let m = ui.call("share.measurements", json!({})).unwrap();
+    assert!(m["count"].as_u64().unwrap() >= 1);
+    assert_redacted("measurements", &m["preview"]);
+    for p in m["preview"].as_array().unwrap() {
+        assert!(["kept", "no_benefit", "harmful"].contains(&p["verdict"].as_str().unwrap()), "{p}");
+    }
+    let url = m["issueUrl"].as_str().unwrap();
+    assert!(url.starts_with("https://github.com/monteero13/overdrive-optimizer/issues/new?"));
+
+    // The GitHub workflow's aggregation reads that very issue body back.
+    let body = percent_decode(url.split("&body=").nth(1).unwrap());
+    let file = overdrive_core::share::aggregate_issue_bodies(&[body], "2026-11-16");
+    assert!(!file.presets.is_empty());
+    assert!(
+        file.presets.iter().all(|p| p.status == overdrive_core::share::PresetStatus::Pending),
+        "one install never verifies anything"
+    );
+
+    // Help a friend: request (redacted) → the friend's Overdrive answers → apply here.
+    let req = ui.call("help.request", json!({})).unwrap();
+    assert_redacted("help request", &req["preview"]);
+    let (mut friend, _, fdir) = measured("friend");
+    let opened = friend.call("help.open", json!({ "code": req["code"] })).unwrap();
+    assert_eq!(opened["request"]["games"][0]["id"], "steam:367520");
+    let free: Vec<String> = opened["request"]["games"][0]["tweaks"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|t| t["lock"].is_null() && t["enabled"] == true)
+        .map(|t| t["id"].as_str().unwrap().to_string())
+        .collect();
+    let off = free[0].clone();
+    let resp = friend
+        .call(
+            "help.respond",
+            json!({
+                "requestCode": req["code"],
+                "games": [{ "gameId": "steam:367520", "enable": ["not_a_tweak"], "disable": [off] }],
+                "note": "prueba esto",
+            }),
+        )
+        .unwrap();
+    assert_eq!(resp["response"]["games"][0]["enable"], json!([]), "unknown tweaks are dropped");
+    let preview = ui.call("help.preview", json!({ "code": resp["code"] })).unwrap();
+    assert_eq!((preview["changes"].as_u64(), preview["applied"].as_bool()), (Some(1), Some(false)));
+    assert_eq!(ui.call("help.apply", json!({ "code": resp["code"] })).unwrap()["applied"], true);
+    let plan = ui.call("plan.preview", json!({ "gameId": "steam:367520" })).unwrap();
+    assert!(plan["items"].as_array().unwrap().iter().any(|i| i["tweakId"] == off.as_str() && i["enabled"] == false));
+    // A response to a request this PC never made is refused; a request code is not a response.
+    let stranger = friend.call("help.request", json!({})).unwrap();
+    let resp2 = ui.call("help.respond", json!({ "requestCode": stranger["code"], "games": [] })).unwrap();
+    assert_eq!(friend.call("help.apply", json!({ "code": resp2["code"] })).unwrap()["applied"], true);
+    assert_eq!(ui.call("help.apply", json!({ "code": resp2["code"] })).unwrap_err()["messageKey"], "err.help_unknown_request");
+    assert_eq!(ui.call("help.apply", json!({ "code": req["code"] })).unwrap_err()["messageKey"], "err.share_bad_code");
+
+    // Sharing changes nothing on the system.
+    assert_eq!(sys.snapshot(), before);
+
+    // Community presets: imported (the UI downloads them), shown per tweak, gains only when verified.
+    let class = card["card"]["hw"]["class"].as_str().unwrap();
+    let file = json!({ "schema": 1, "generatedDay": "2026-11-16", "minInstalls": 5, "presets": [
+        { "gameId": "steam:367520", "tweakId": "hybrid_gpu", "scope": format!("class:{class}"), "installs": 7, "kept": 7, "harmful": 0, "medianDeltaPct": 31.0, "status": "verified" },
+        { "gameId": "steam:367520", "tweakId": "gamedvr_off", "scope": "tier:9:laptop:nvidia", "installs": 2, "kept": 2, "harmful": 0, "medianDeltaPct": 12.0, "status": "pending" },
+    ]});
+    assert_eq!(ui.call("presets.import", json!({ "file": file })).unwrap()["presets"], 2);
+    let plan = ui.call("plan.preview", json!({ "gameId": "steam:367520" })).unwrap();
+    let hy = plan["items"].as_array().unwrap().iter().find(|i| i["tweakId"] == "hybrid_gpu").unwrap().clone();
+    assert_eq!(hy["community"], json!({ "status": "verified", "installs": 7, "sameHardware": true, "medianDeltaPct": 31.0 }));
+    assert!(ui.call("presets.import", json!({ "file": { "nope": 1 } })).is_err());
+
+    // Contract fixture for the UI test suite.
+    let fixture = json!({ "card": card, "measurements": m, "helpRequest": req, "helpPreview": preview, "plan": plan });
+    let out = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../ui/web/test/fixtures/svc-share.json");
+    std::fs::write(&out, serde_json::to_string_pretty(&fixture).unwrap()).unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&fdir);
 }
