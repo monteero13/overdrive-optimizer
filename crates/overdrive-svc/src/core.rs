@@ -240,6 +240,10 @@ pub struct Core {
     t_library: i64,
     t_user: i64,
     t_refresh: i64,
+    /// What the interactive desktop looks like (windows, foreground, audio), reported by
+    /// the tray app: a service in session 0 cannot see any of it. (received at, report)
+    desktop: Option<(i64, DesktopReport)>,
+    t_desktop_need: i64,
     pub log: Vec<String>,
 }
 
@@ -289,6 +293,8 @@ impl Core {
             t_library: now,
             t_user: now,
             t_refresh: now,
+            desktop: None,
+            t_desktop_need: 0,
             log: vec![],
         };
         core.startup();
@@ -1197,6 +1203,15 @@ impl Core {
                 self.save();
                 Ok(json!({ "ok": true }))
             }
+            "desktop.report" => {
+                let d: DesktopReport = serde_json::from_value(p.clone()).map_err(|_| bad("BAD_PARAMS", "err.internal"))?;
+                if d.windowed.len() > 8192 || d.audio.len() > 8192 {
+                    return Err(bad("BAD_PARAMS", "err.internal"));
+                }
+                self.desktop = Some((self.platform.now_ms(), d));
+                self.t_watch = 0; // look now: a game may be waiting for this
+                Ok(json!({ "ok": true }))
+            }
             "settings.get" => Ok(v(&self.store.settings)),
             "settings.set" => {
                 let obj = p.as_object().ok_or_else(|| bad("BAD_PARAMS", "err.internal"))?;
@@ -1506,11 +1521,88 @@ impl Core {
         changed || young
     }
 
+    /// The tray app's last desktop report, if recent enough to trust.
+    fn fresh_desktop(&self) -> Option<DesktopReport> {
+        const FRESH_MS: i64 = 6_000;
+        let now = self.platform.now_ms();
+        self.desktop
+            .as_ref()
+            .filter(|(at, _)| now - at <= FRESH_MS)
+            .map(|(_, d)| d.clone())
+    }
+
+    /// Ask the tray app (user session) to report the desktop; rate-limited.
+    fn request_desktop(&mut self) {
+        let now = self.platform.now_ms();
+        if now - self.t_desktop_need >= 2_000 {
+            self.t_desktop_need = now;
+            self.event("desktop.need", json!({}));
+        }
+    }
+
+    /// Without desktop info, a game can still be recognised by an executable we already
+    /// identified for it (or the one its launcher declares).
+    fn known_game_running(&mut self) -> bool {
+        let Some(images) = self.platform.running_images() else {
+            return false;
+        };
+        let names: HashSet<String> = self
+            .store
+            .learned_exe
+            .values()
+            .cloned()
+            .chain(self.library.iter().filter_map(|g| g.exe_hint.clone()))
+            .filter_map(|p| p.rsplit(['\\', '/']).next().map(str::to_ascii_lowercase))
+            .collect();
+        images.iter().any(|i| names.contains(&i.to_ascii_lowercase()))
+    }
+
     fn watch(&mut self) -> bool {
         if self.live.is_none() && !self.processes_changed() {
             return false;
         }
-        let procs = self.platform.processes();
+        // A service in session 0 can't see the user's windows, foreground or audio: the
+        // tray app reports them. Never guess them — they decide what is safe to touch.
+        let blind = !self.platform.sees_desktop();
+        let report = if blind { self.fresh_desktop() } else { None };
+        let desktop_known = !blind || report.is_some();
+        if !desktop_known && self.live.is_none() {
+            self.request_desktop();
+            if !self.known_game_running() {
+                self.last_keys.clear(); // look again on the next tick
+                return false;
+            }
+        }
+        let mut procs = self.platform.processes();
+        if let Some(d) = &report {
+            for p in procs.iter_mut().filter(|p| p.session_id != 0) {
+                p.has_visible_window = d.windowed.contains(&p.process.pid);
+                p.is_foreground = d.foreground == Some(p.process.pid);
+                p.produces_audio = d.audio.contains(&p.process.pid);
+            }
+        }
+        if !desktop_known {
+            // Only an already-identified game can start a session; windows are unknown.
+            let names: HashSet<String> = self
+                .store
+                .learned_exe
+                .values()
+                .cloned()
+                .chain(self.library.iter().filter_map(|g| g.exe_hint.clone()))
+                .map(|p| norm(&p))
+                .collect();
+            let files: HashSet<String> = names
+                .iter()
+                .filter_map(|n| n.rsplit('\\').next().map(String::from))
+                .collect();
+            for p in procs.iter_mut() {
+                if files.contains(&p.process.image.to_ascii_lowercase())
+                    && self.platform.image_path(p.process.pid).is_some_and(|path| names.contains(&norm(&path)))
+                {
+                    p.has_visible_window = true;
+                }
+            }
+        }
         if let Some(l) = &self.live {
             let alive = procs
                 .iter()
@@ -1560,7 +1652,14 @@ impl Core {
                 continue;
             }
             if let Some(game_id) = hit {
-                self.start_session(&game_id, p.clone(), &procs);
+                if desktop_known {
+                    self.start_session(&game_id, p.clone(), &procs);
+                } else {
+                    // Audio and foreground are unknown: give the session nothing but the
+                    // game, so background isolation cannot touch any other process.
+                    let only = [p.clone()];
+                    self.start_session(&game_id, p.clone(), &only);
+                }
                 return true;
             }
         }

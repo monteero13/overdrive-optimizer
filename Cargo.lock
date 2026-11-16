@@ -2430,6 +2430,7 @@ version = "1.0.0-alpha.2"
 dependencies = [
  "getrandom 0.3.4",
  "overdrive-ipc",
+ "overdrive-win",
  "serde",
  "serde_json",
  "tauri",

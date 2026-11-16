@@ -389,6 +389,8 @@ pub const METHODS: &[&str] = &[
     "settings.get",
     "settings.set",
     "op.cancel",
+    // The tray app reports the interactive desktop (the service in session 0 is blind to it).
+    "desktop.report",
     // Sharing (goals.md §7): build payloads only, nothing leaves the PC from here.
     "share.card",
     "share.verifyCard",
@@ -407,4 +409,16 @@ pub fn params_of(v: Value) -> Option<Params> {
         Value::Object(m) if !m.is_empty() => Some(m.into_iter().collect()),
         _ => None,
     }
+}
+
+/// The interactive desktop as the tray app (in the user's session) sees it. A service in
+/// session 0 cannot enumerate the user's windows, foreground window or audio sessions.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct DesktopReport {
+    /// PIDs with a visible top-level window.
+    pub windowed: Vec<u32>,
+    pub foreground: Option<u32>,
+    /// PIDs playing or capturing audio (any device).
+    pub audio: Vec<u32>,
 }

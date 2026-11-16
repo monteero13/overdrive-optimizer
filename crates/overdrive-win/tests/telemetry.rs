@@ -66,7 +66,9 @@ fn missing_tool_is_a_clear_error() {
 #[test]
 fn system_sampler_reads_counters_within_budget() {
     let sampler = SystemSampler::start(Duration::from_millis(500));
-    std::thread::sleep(Duration::from_millis(3200));
+    // 2 Hz for ~4.5 s: ≥ 5 samples even on a loaded machine (the first one also loads the
+    // GPU counter provider, ~0.4 s).
+    std::thread::sleep(Duration::from_millis(4500));
     let (samples, stats) = sampler.stop();
 
     assert!(samples.len() >= 5, "got {} samples", samples.len());

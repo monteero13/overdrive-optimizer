@@ -66,6 +66,11 @@ impl Platform for WinPlatform {
             .ok()
             .map(|v| v.into_iter().filter(|p| p.session_id != 0).map(|p| (p.pid, p.start_time)).collect())
     }
+    fn running_images(&mut self) -> Option<Vec<String>> {
+        processes::snapshot()
+            .ok()
+            .map(|v| v.into_iter().filter(|p| p.session_id != 0).map(|p| p.image).collect())
+    }
     fn image_path(&mut self, pid: u32) -> Option<String> {
         processes::image_path(pid)
     }
@@ -99,6 +104,9 @@ impl Platform for WinPlatform {
             }
         }
         RegRoot::CurrentUser
+    }
+    fn sees_desktop(&self) -> bool {
+        overdrive_ipc::session_of(std::process::id()).is_some_and(|s| s != 0)
     }
     fn user_dirs(&mut self, user: &RegRoot) -> UserDirs {
         // "Shell Folders" holds the expanded paths (and follows OneDrive/folder redirection).

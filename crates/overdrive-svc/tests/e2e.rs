@@ -102,6 +102,8 @@ struct World {
     sys: Rc<FakeSystem>,
     rng: RefCell<Rng>,
     captures: Cell<usize>,
+    /// Like the real service in session 0: no windows, foreground or audio visible.
+    blind: Cell<bool>,
 }
 
 struct FakePlatform(Rc<World>, HardwareProfile);
@@ -143,9 +145,9 @@ impl Platform for FakePlatform {
             process: ProcRef { pid, start_time: 1000 + pid as u64, image: img.into() },
             session_id: 1,
             parent_pid: None,
-            is_foreground: pid == GAME_PID,
-            produces_audio: audio,
-            has_visible_window: win,
+            is_foreground: pid == GAME_PID && !self.0.blind.get(),
+            produces_audio: audio && !self.0.blind.get(),
+            has_visible_window: win && !self.0.blind.get(),
         };
         let mut v = vec![p(100, "chrome.exe", true, false), p(200, "GoogleUpdate.exe", false, false), p(400, "Discord.exe", true, true)];
         if self.0.game_running.get() {
@@ -154,6 +156,12 @@ impl Platform for FakePlatform {
         v
     }
     // The cheap pre-check path, like the real platform (start/stop detection must still work).
+    fn sees_desktop(&self) -> bool {
+        !self.0.blind.get()
+    }
+    fn running_images(&mut self) -> Option<Vec<String>> {
+        Some(self.processes().into_iter().map(|p| p.process.image).collect())
+    }
     fn process_keys(&mut self) -> Option<Vec<(u32, u64)>> {
         Some(self.processes().iter().map(|p| (p.process.pid, p.process.start_time)).collect())
     }
@@ -310,7 +318,7 @@ fn tmp(name: &str) -> PathBuf {
 }
 
 fn world(sys: &Rc<FakeSystem>) -> Rc<World> {
-    Rc::new(World { clock: Cell::new(1_760_000_000_000), game_running: Cell::new(false), sys: sys.clone(), rng: RefCell::new(Rng::new(11)), captures: Cell::new(0) })
+    Rc::new(World { clock: Cell::new(1_760_000_000_000), game_running: Cell::new(false), sys: sys.clone(), rng: RefCell::new(Rng::new(11)), captures: Cell::new(0), blind: Cell::new(false) })
 }
 
 /// Original state minus the volatile process flags the engine restores anyway.
@@ -625,4 +633,81 @@ fn sharing_through_the_protocol() {
     std::fs::write(&out, serde_json::to_string_pretty(&fixture).unwrap()).unwrap();
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::remove_dir_all(&fdir);
+}
+
+/// The installed service runs in session 0 and cannot see the user's windows, foreground
+/// or audio (found on a real PC: no game was ever detected). The tray app reports them.
+#[test]
+fn a_service_in_session_0_relies_on_the_tray_app_and_never_guesses() {
+    let dir = tmp("blind");
+    let sys = Rc::new(FakeSystem::new(original()));
+    let w = world(&sys);
+    w.blind.set(true);
+    let mut ui = Ui::new(&dir, w.clone(), sys.clone());
+    ui.op("session.benchmark", json!({ "gameId": "steam:367520" }));
+
+    // 1. Blind and no tray app: a never-seen game is not detected, and the service asks.
+    w.game_running.set(true);
+    ui.advance(7_000);
+    assert_eq!(ui.core.live_game(), None, "no guessing without desktop info");
+    assert!(ui.events.iter().any(|e| e["type"] == "desktop.need"), "the service asked the tray app");
+
+    // 2. The tray app answers: the game (windowed, foreground) is detected.
+    ui.call("desktop.report", json!({ "windowed": [100, 300, 400], "foreground": 300, "audio": [400] })).unwrap();
+    ui.advance(1_000);
+    assert_eq!(ui.core.live_game(), Some("steam:367520"), "detected with the tray app's report");
+    w.game_running.set(false);
+    ui.advance(3_000);
+    assert_eq!(ui.core.live_game(), None);
+
+    // 3. Optimized session, blind, tray app gone (report stale): the already-identified
+    //    game is still recognised, but no other process may be touched.
+    for _ in 0..2 {
+        ui.call("desktop.report", json!({ "windowed": [100, 300, 400], "foreground": 300, "audio": [400] })).unwrap();
+        ui.play();
+    }
+    // Make background isolation (medium risk: Expert mode) the tweak under test.
+    ui.call("settings.set", json!({ "mode": "expert" })).unwrap();
+    let plan = ui.call("plan.preview", json!({ "gameId": "steam:367520" })).unwrap();
+    for i in plan["items"].as_array().unwrap() {
+        let on = i["tweakId"] == "background_isolation";
+        if i["lock"].is_null() {
+            ui.call("plan.setToggle", json!({ "gameId": "steam:367520", "tweakId": i["tweakId"], "enabled": on })).unwrap();
+        }
+    }
+    let report = json!({ "windowed": [100, 300, 400], "foreground": 300, "audio": [400] });
+
+    // Control: WITH the tray app's report, isolation touches known background apps,
+    // but never Discord (it is playing audio).
+    ui.op("session.optimize", json!({ "gameId": "steam:367520" }));
+    ui.call("desktop.report", report.clone()).unwrap();
+    sys.opened.borrow_mut().clear();
+    w.game_running.set(true);
+    ui.advance(3_500);
+    assert_eq!(ui.core.live_game(), Some("steam:367520"));
+    let touched: HashSet<u32> = sys.opened.borrow().iter().copied().collect();
+    assert!(touched.iter().any(|p| *p == 100 || *p == 200), "control: background apps isolated {touched:?}");
+    assert!(!touched.contains(&400), "never the app playing audio");
+    w.game_running.set(false);
+    ui.advance(3_000);
+    assert!(same_as_original(&sys.snapshot()), "control session reverted");
+
+    ui.op("session.optimize", json!({ "gameId": "steam:367520" }));
+    ui.advance(10_000); // the last report is now stale
+    sys.opened.borrow_mut().clear();
+    w.game_running.set(true);
+    ui.advance(4_000);
+    assert_eq!(ui.core.live_game(), Some("steam:367520"), "known exe recognised without the tray app");
+    let touched: HashSet<u32> = sys.opened.borrow().iter().copied().collect();
+    assert!(
+        touched.iter().all(|p| *p == GAME_PID),
+        "without desktop info no background process is touched (audio unknown): {touched:?}"
+    );
+    w.game_running.set(false);
+    ui.advance(3_000);
+    assert!(same_as_original(&sys.snapshot()), "session reverted");
+
+    // Bad reports are refused.
+    assert!(ui.call("desktop.report", json!({ "windowed": "nope" })).is_err());
+    let _ = std::fs::remove_dir_all(&dir);
 }

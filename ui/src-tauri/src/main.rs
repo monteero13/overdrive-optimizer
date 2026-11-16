@@ -54,6 +54,37 @@ fn set_up(app: &AppHandle, relay: &Relay, up: bool) {
     let _ = app.emit("ipc://status", up);
 }
 
+fn is_desktop_need(frame: &str) -> bool {
+    frame.contains("\"desktop.need\"")
+        && serde_json::from_str::<serde_json::Value>(frame)
+            .is_ok_and(|v| v["kind"] == "evt" && v["type"] == "desktop.need")
+}
+
+/// The service runs in session 0 and cannot see this desktop. Tell it which processes
+/// have a visible window, which one is in the foreground and which ones play or capture
+/// audio — only when it asks (no polling), on a worker thread (audio uses COM).
+fn report_desktop(relay: &Arc<Relay>) {
+    let relay = relay.clone();
+    thread::spawn(move || {
+        use overdrive_win::processes::{audio_pids, foreground_pid, windowed_pids};
+        let mut windowed: Vec<u32> = windowed_pids().into_iter().collect();
+        let mut audio: Vec<u32> = audio_pids().into_iter().collect();
+        windowed.sort_unstable();
+        audio.sort_unstable();
+        let id = OWN_ID.fetch_add(1, Ordering::Relaxed);
+        let f = serde_json::json!({
+            "kind": "req",
+            "id": id,
+            "method": "desktop.report",
+            "params": { "windowed": windowed, "foreground": foreground_pid(), "audio": audio },
+        })
+        .to_string();
+        if let Some(tx) = relay.tx.lock().unwrap().as_ref() {
+            let _ = tx.send(f);
+        }
+    });
+}
+
 fn relay_loop(app: AppHandle, relay: Arc<Relay>) {
     loop {
         let pipe = match overdrive_ipc::connect(&pipe_name(), Duration::from_secs(2)) {
@@ -80,7 +111,11 @@ fn relay_loop(app: AppHandle, relay: Arc<Relay>) {
                 }
             }
         });
+        report_desktop(&relay); // the service may be waiting to identify a running game
         while let Ok(f) = pipe.read_frame() {
+            if is_desktop_need(&f) {
+                report_desktop(&relay);
+            }
             let _ = app.emit("ipc://frame", f);
         }
         pipe.close();

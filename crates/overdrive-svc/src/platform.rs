@@ -39,6 +39,10 @@ pub trait Platform {
     fn process_keys(&mut self) -> Option<Vec<(u32, u64)>> {
         None
     }
+    /// Image names (e.g. `cs2.exe`) of the processes in interactive sessions, cheaply.
+    fn running_images(&mut self) -> Option<Vec<String>> {
+        None
+    }
     /// Full image path of a process, read without opening it.
     fn image_path(&mut self, pid: u32) -> Option<String>;
     fn library(&mut self, user: &RegRoot) -> Vec<LibraryGame>;
@@ -49,6 +53,11 @@ pub trait Platform {
     fn user_root(&mut self) -> RegRoot;
     /// That user's AppData / LocalAppData / Documents (never the service's own).
     fn user_dirs(&mut self, user: &RegRoot) -> UserDirs;
+    /// Can this process see the interactive desktop (windows, foreground, audio sessions)?
+    /// `false` for the real service in session 0: it relies on `desktop.report` instead.
+    fn sees_desktop(&self) -> bool {
+        true
+    }
     fn reboot_to_firmware(&mut self) -> Result<(), String>;
     fn stability_events(&mut self, since_ms: i64) -> Option<RawStabilityEvents>;
     fn now_ms(&self) -> i64;

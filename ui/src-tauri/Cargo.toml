@@ -12,6 +12,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = ["tray-icon"] }
 overdrive-ipc = { path = "../../crates/overdrive-ipc" }
+overdrive-win = { path = "../../crates/overdrive-win" }
 serde_json.workspace = true
 ureq = "3"
 tauri-plugin-updater = "2"
