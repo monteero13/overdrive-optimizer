@@ -55,7 +55,7 @@ jobs:
 
       # Includes the end-to-end service tests, which regenerate the UI contract fixtures.
       - name: Rust tests
-        run: cargo test --workspace
+        run: cargo test --workspace --no-fail-fast
 
       - name: UI tests (contract with the real service, i18n, mock engine)
         working-directory: ui/web

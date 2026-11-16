@@ -250,7 +250,9 @@ fn real_process_priority_ecoqos_suspend_and_resume() {
     let proc = WinSystem::proc_ref(child.id()).unwrap();
     assert_eq!(proc.image.to_ascii_lowercase(), "ping.exe");
     let sys = WinSystem;
-    assert_eq!(sys.proc_priority(&proc).unwrap(), PriorityClass::Normal);
+    // The child inherits our priority (CI runners use BelowNormal): work from what it has.
+    let original = sys.proc_priority(&proc).unwrap();
+    let target = if original == PriorityClass::BelowNormal { PriorityClass::Idle } else { PriorityClass::BelowNormal };
     let eco_before = sys.proc_eco_qos(&proc).unwrap();
 
     let j = Journal::open_in_memory("live").unwrap();
@@ -267,7 +269,7 @@ fn real_process_priority_ecoqos_suspend_and_resume() {
             "bg_prio",
             Action::ProcessPriority {
                 process: proc.clone(),
-                class: PriorityClass::BelowNormal,
+                class: target,
             },
         ),
         PlannedAction::new(
@@ -280,7 +282,7 @@ fn real_process_priority_ecoqos_suspend_and_resume() {
     let tx = e.apply(TxKind::Session, None, "live", &plan).unwrap();
     assert_eq!(
         sys.proc_priority(&proc).unwrap(),
-        PriorityClass::BelowNormal
+        target
     );
     assert_ne!(
         sys.proc_eco_qos(&proc).unwrap(),
@@ -290,7 +292,7 @@ fn real_process_priority_ecoqos_suspend_and_resume() {
 
     let r = e.revert(tx).unwrap();
     assert!(r.ok(), "{r:?}");
-    assert_eq!(sys.proc_priority(&proc).unwrap(), PriorityClass::Normal);
+    assert_eq!(sys.proc_priority(&proc).unwrap(), original);
     assert_eq!(sys.proc_eco_qos(&proc).unwrap(), eco_before);
     assert!(sys.proc_alive(&proc).unwrap(), "resumed and still running");
 
@@ -305,7 +307,7 @@ fn real_process_priority_ecoqos_suspend_and_resume() {
         .is_err());
     assert_eq!(
         sys.proc_priority(&proc).unwrap(),
-        PriorityClass::Normal,
+        original,
         "the real process was not touched"
     );
 
