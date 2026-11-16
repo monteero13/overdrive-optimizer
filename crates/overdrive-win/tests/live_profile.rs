@@ -21,10 +21,16 @@ fn live_profile_is_complete_and_fast() {
     assert!(p.cpu.threads.val().unwrap_or(0) >= p.cpu.cores.val().unwrap_or(0));
     assert!(p.memory.total_gb.val().unwrap_or(0.0) > 1.0);
     assert!(!p.memory.modules.is_empty() || p.memory.total_gb.is_known());
-    assert!(
-        !p.gpus.is_empty(),
-        "DXGI should report at least one hardware adapter"
-    );
+    // GitHub's Windows runners are VMs with only the software (Basic Render) adapter, which
+    // the profiler correctly leaves out. Everywhere else a hardware adapter must be found.
+    if std::env::var_os("GITHUB_ACTIONS").is_some() {
+        println!("CI VM: {} hardware GPU(s) reported (none expected)", p.gpus.len());
+    } else {
+        assert!(
+            !p.gpus.is_empty(),
+            "DXGI should report at least one hardware adapter"
+        );
+    }
     assert!(
         p.system_drive().is_some(),
         "the system drive must be identified"
