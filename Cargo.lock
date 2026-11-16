@@ -2426,7 +2426,7 @@ dependencies = [
 
 [[package]]
 name = "overdrive-app"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 dependencies = [
  "getrandom 0.3.4",
  "overdrive-ipc",
@@ -2441,7 +2441,7 @@ dependencies = [
 
 [[package]]
 name = "overdrive-core"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 dependencies = [
  "base64 0.22.1",
  "ed25519-dalek",
@@ -2456,14 +2456,14 @@ dependencies = [
 
 [[package]]
 name = "overdrive-ipc"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 dependencies = [
  "windows",
 ]
 
 [[package]]
 name = "overdrive-svc"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 dependencies = [
  "getrandom 0.3.4",
  "overdrive-core",
@@ -2477,7 +2477,7 @@ dependencies = [
 
 [[package]]
 name = "overdrive-win"
-version = "1.0.0-alpha.1"
+version = "1.0.0-alpha.2"
 dependencies = [
  "overdrive-core",
  "serde",
