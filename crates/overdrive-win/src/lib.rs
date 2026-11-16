@@ -7,6 +7,7 @@
 //! - DXGI (adapters, VRAM), cfgmgr32 (PCIe link), PDH (CPU performance limit),
 //!   GetLogicalProcessorInformationEx (P/E cores), registry (OS + gaming settings), Event Log.
 
+pub mod identity;
 pub mod processes;
 pub mod sys;
 pub mod system_ops;

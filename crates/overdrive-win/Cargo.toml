@@ -35,6 +35,9 @@ features = [
   "Win32_UI_WindowsAndMessaging",
   "Win32_Devices_DeviceAndDriverInstallation",
   "Win32_Devices_Properties",
+  "Win32_Security",
+  "Win32_Security_Authorization",
+  "Win32_Storage_FileSystem",
 ]
 
 [[bin]]

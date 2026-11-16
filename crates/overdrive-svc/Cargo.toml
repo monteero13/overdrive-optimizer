@@ -1,0 +1,23 @@
+[package]
+name = "overdrive-svc"
+description = "Overdrive Windows service: runs the engine as LocalSystem and serves overdrive.v1 on a named pipe."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+overdrive-core = { path = "../overdrive-core" }
+overdrive-win = { path = "../overdrive-win" }
+overdrive-ipc = { path = "../overdrive-ipc" }
+serde.workspace = true
+serde_json.workspace = true
+windows-service = "0.8"
+
+[dependencies.windows]
+version = "0.62"
+features = ["Win32_Foundation", "Win32_System_SystemInformation"]
+
+[[bin]]
+name = "overdrive-svc"
+path = "src/main.rs"

@@ -39,6 +39,8 @@ pub enum Exclusion {
     EasyMode,
     /// Needs a reboot: offered manually (Expert), not auto-tested.
     NeedsReboot,
+    /// The user switched it off in the plan for this game.
+    UserDisabled,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -107,6 +109,10 @@ pub struct Orchestrator<'a> {
     pub capabilities: Vec<String>,
     pub expert: bool,
     pub now_hour: u8,
+    /// Tweaks the user switched off for the game being planned.
+    pub disabled: HashSet<String>,
+    /// Images the user asked us never to touch (lowercase), on top of the built-in policy.
+    pub whitelist: HashSet<String>,
 }
 
 impl<'a> Orchestrator<'a> {
@@ -120,6 +126,8 @@ impl<'a> Orchestrator<'a> {
             capabilities: vec![],
             expert: false,
             now_hour: 20,
+            disabled: HashSet::new(),
+            whitelist: HashSet::new(),
         }
     }
 
@@ -188,6 +196,7 @@ impl<'a> Orchestrator<'a> {
             let ex = match verdicts.get(&id) {
                 Some(Verdict::Harmful) => Some(Exclusion::Blacklisted),
                 Some(Verdict::NoBenefit) => Some(Exclusion::NoBenefit),
+                _ if self.disabled.contains(&id) => Some(Exclusion::UserDisabled),
                 _ if m.requires_reboot => Some(Exclusion::NeedsReboot),
                 _ if !self.expert && !m.easy_mode_ok() => Some(Exclusion::EasyMode),
                 _ if game.anticheat.forbids_process_access() && !m.anticheat_safe => {
@@ -306,6 +315,7 @@ impl<'a> Orchestrator<'a> {
             .tweaks
             .iter()
             .filter(|m| m.measure == Measure::None && (self.expert || m.easy_mode_ok()))
+            .filter(|m| !self.disabled.contains(&m.id))
             .filter(|m| {
                 matches!(
                     self.catalog.build(&m.id, &ctx, self.sys),
@@ -441,7 +451,7 @@ impl<'a> Orchestrator<'a> {
         let policy = SafetyPolicy {
             game: Some((game_proc.clone(), game.anticheat)),
             game_children: children,
-            ..Default::default()
+            user_whitelist: self.whitelist.clone(),
         };
         let mut ids: Vec<String> = tweak_set
             .iter()
