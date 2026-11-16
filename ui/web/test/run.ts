@@ -290,6 +290,51 @@ test('i18n: every tweak in catalog/tweaks.toml and every exclusion reason has te
   }
 });
 
+test('contract: the real service snapshot/plan/report match the TypeScript shapes', () => {
+  // Written by `cargo test -p overdrive-svc --test e2e` from a full simulated flow.
+  const fx = JSON.parse(readFileSync(new URL('./fixtures/svc-snapshot.json', import.meta.url), 'utf8'));
+  const shape = (o: Record<string, unknown>, keys: Record<string, string>, where: string) => {
+    for (const [k, t] of Object.entries(keys)) {
+      const v = o[k];
+      const got = v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v;
+      ok(t.split('|').includes(got), `${where}.${k}: expected ${t}, got ${got}`);
+    }
+  };
+  const s = fx.snapshot;
+  shape(s, { seq: 'number', bootId: 'string', settings: 'object', hardware: 'object|null', issues: 'array', pulse: 'object', games: 'array', activeSession: 'object|null', operations: 'array', persistentChanges: 'array', suspended: 'array', prompts: 'array', reports: 'array', health: 'object|null', coach: 'object|null' }, 'snapshot');
+  shape(s.settings, { mode: 'string', locale: 'string', theme: 'string', reduceMotion: 'string', telemetryOptIn: 'boolean' }, 'settings');
+  shape(s.hardware, { tier: 'number', isLaptop: 'boolean', powerSource: 'string', os: 'string', cpu: 'object', gpu: 'object', vramGb: 'object', ramGb: 'object', ramSpeed: 'object', ramChannels: 'object', storage: 'object', storageFreePct: 'object', boardVendor: 'object' }, 'hardware');
+  for (const g of s.games) shape(g, { id: 'string', name: 'string', launcher: 'string', antiCheat: 'string', antiCheatName: 'string|null', bottleneck: 'string', status: 'string', fixesReady: 'number', measured: 'object|null', hue: 'number' }, 'game');
+  ok(['needs_baseline', 'ready', 'armed', 'running', 'optimized'].includes(s.games[0].status), 'game status vocabulary');
+  for (const c of s.persistentChanges) shape(c, { tweakId: 'string', since: 'number', source: 'string' }, 'persistentChange');
+  for (const r of s.reports) shape(r, { txId: 'number', gameId: 'string', endedAt: 'number', low1DeltaPct: 'number' }, 'reportSummary');
+  for (const p of s.prompts) {
+    ok(['keep_persistent', 'recovered', 'drift', 'bios_verified', 'notice'].includes(p.kind), `prompt kind ${p.kind}`);
+    if (p.kind === 'notice') ok(p.messageKey in es && p.messageKey in en, `notice key ${p.messageKey} translated`);
+  }
+  shape(s.health, { month: 'string', keptFixed: 'number', driftRepaired: 'number', sessionsMeasured: 'number', recommendationKey: 'string' }, 'health');
+  shape(fx.plan, { gameId: 'string', items: 'array', hiddenInEasy: 'number' }, 'plan');
+  for (const i of fx.plan.items) {
+    shape(i, { tweakId: 'string', scope: 'string', risk: 'string', evidence: 'string', requiresReboot: 'boolean', enabled: 'boolean', lock: 'string|null', history: 'string', technical: 'string', before: 'string', after: 'string' }, 'planItem');
+    ok(i.before in es && i.after in es, `plan texts for ${i.tweakId}`);
+  }
+  shape(fx.report, { txId: 'number', gameId: 'string', endedAt: 'number', gameplaySecs: 'number', bottleneck: 'string', baselineRuns: 'number', baseline: 'object', optimized: 'object', baselineSeries: 'array', optimizedSeries: 'array', tweaks: 'array' }, 'report');
+  shape(fx.report.optimized, { avgFps: 'number', low1: 'number', low01: 'number', p50Ms: 'number', p99Ms: 'number', stdevMs: 'number', stutters: 'number' }, 'metrics');
+  for (const t of fx.report.tweaks) ok(['kept', 'no_benefit', 'harmful', 'inconclusive'].includes(t.verdict), `verdict ${t.verdict}`);
+});
+
+test('i18n: every notice/err key the real service emits exists (es + en)', () => {
+  const core = readFileSync(new URL('../../../crates/overdrive-svc/src/core.rs', import.meta.url), 'utf8');
+  const keys = new Set<string>();
+  for (const m of core.matchAll(/"((?:notice|err|op|step|lock)\.[a-z0-9_]+)"/g)) keys.add(m[1]);
+  for (const evt of ['op.progress', 'op.finished', 'op.cancel']) keys.delete(evt); // protocol names
+  ok(keys.size >= 25, `parsed only ${keys.size} keys from core.rs`);
+  for (const [name, dict] of [['es', es], ['en', en]] as const) {
+    const missing = [...keys].filter((k) => !(k in dict));
+    ok(!missing.length, `${name} missing: ${missing.join(', ')}`);
+  }
+});
+
 // ---------------------------------------------------------------- run
 for (const [name, fn] of tests) {
   try {

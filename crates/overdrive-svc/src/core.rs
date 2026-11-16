@@ -496,7 +496,7 @@ impl Core {
 
     fn orch(&self, game_id: &str) -> Orchestrator<'_> {
         let mut o = Orchestrator::new(&self.journal, self.sys.as_ref(), &self.catalog);
-        o.settings = self.settings.clone();
+        o.settings = self.settings;
         o.user_root = self.user_root.clone();
         o.expert = self.store.settings.mode == "expert";
         o.now_hour = self.platform.local_hour();
@@ -1605,7 +1605,7 @@ impl Core {
                 match self.orch(&l.game_id).on_game_exit(&l.target, hw, active, &l.frames, &samples, &ctx) {
                     Ok(r) => {
                         let label = serde_json::to_value(r.bottleneck).ok().and_then(|v| v.as_str().map(String::from));
-                        (r.session_id, r.valid, r.metrics.clone(), label, Some(r))
+                        (r.session_id, r.valid, r.metrics, label, Some(r))
                     }
                     Err(e) => {
                         self.note(format!("on_game_exit failed: {e}"));
@@ -1653,7 +1653,7 @@ impl Core {
                 );
                 self.store.reports.truncate(50);
                 for t in &r.offers {
-                    let c = r.decisions.iter().find(|(d, _)| d == t).map(|(_, c)| c.clone());
+                    let c = r.decisions.iter().find(|(d, _)| d == t).map(|(_, c)| *c);
                     let id = self.store.new_id("p");
                     self.store.prompts.push(Prompt::KeepPersistent {
                         prompt_id: id,
@@ -1668,7 +1668,12 @@ impl Core {
             _ => {
                 let _ = metrics;
                 if valid {
-                    self.push_notice("notice.baseline_saved", params_of(json!({ "game": name })));
+                    let left = self.settings.min_runs.saturating_sub(self.baseline_runs(&l.game_id));
+                    if left > 0 {
+                        self.push_notice("notice.baseline_progress", params_of(json!({ "game": name, "n": left })));
+                    } else {
+                        self.push_notice("notice.baseline_saved", params_of(json!({ "game": name })));
+                    }
                 } else {
                     self.session_short_notice(&l, &name);
                 }

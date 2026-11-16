@@ -292,6 +292,18 @@ export const es: Record<string, string> = {
   'prompt.ok': 'Entendido',
   'notice.baseline_saved': 'Medición de referencia de {game} guardada. Ya puedes optimizarlo.',
   'notice.reset_done': 'Hecho. Tu PC está exactamente como antes de Overdrive.',
+  'notice.play_to_measure': 'Juega a {game} como siempre. Overdrive medirá {n} partida(s) de al menos un minuto, sin cambiar nada, para saber cómo va ahora.',
+  'notice.baseline_progress': 'Partida de {game} medida. Faltan {n} para tener la referencia.',
+  'notice.session_short': 'La partida de {game} fue demasiado corta para medirla (mínimo {min} min de juego). No pasa nada: se mide la próxima.',
+  'notice.no_capture': 'No se pudo medir la partida de {game} (falta la herramienta de medición). Lo que se aplicó ya se ha deshecho.',
+  'notice.apply_failed': 'Windows no permitió preparar {game}. No se ha cambiado nada: la partida solo se mide.',
+  'notice.revert_failed': 'Algo de {game} no se pudo deshacer solo. Abre Overdrive y pulsa «Restaurar todo».',
+  'notice.reset_diffs': 'Casi todo está como antes, pero {n} ajuste(s) los cambió otro programa después y los hemos dejado como están.',
+  'notice.bios_not_applied': 'Tras reiniciar, la BIOS no guardó el cambio. Puedes repetir los pasos cuando quieras.',
+  'err.game_running': 'Cierra el juego primero.',
+  'err.not_available_dev': 'No disponible en modo de prueba.',
+  'err.not_proven': 'Solo se mantiene lo que se ha demostrado que ayuda en tu PC.',
+  'exclusion.user_disabled': 'Lo has desactivado tú',
   'notice.drift_none': 'No hay cambios fijos que vigilar todavía.',
 
   // Pulse

@@ -71,7 +71,7 @@ impl Platform for WinPlatform {
         let epic = PathBuf::from(pd).join(r"Epic\EpicGamesLauncher\Data\Manifests");
         let mut v = library::scan_steam(&steam);
         v.extend(library::scan_epic(&epic));
-        v.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        v.sort_by_key(|a| a.name.to_lowercase());
         v
     }
     fn capture(&mut self, pid: u32) -> Result<Box<dyn Capture>, String> {

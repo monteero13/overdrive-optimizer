@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The Overdrive window may only relay overdrive.v1 frames and listen to relay events. No shell, no fs, no http.",
+  "windows": ["main"],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-ipc-send",
+    "allow-ipc-status"
+  ]
+}

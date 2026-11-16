@@ -589,7 +589,7 @@
   },
   "snapshot": {
     "activeSession": null,
-    "bootId": "18e8604df1532208-27a8-b2887f4260",
+    "bootId": "18e8989430a89b58-990-6c659f4540",
     "coach": null,
     "games": [
       {
@@ -719,7 +719,7 @@
     "operations": [],
     "persistentChanges": [
       {
-        "since": 1794790339874,
+        "since": 1794852214306,
         "source": "user_accept",
         "tweakId": "hybrid_gpu"
       }
@@ -736,17 +736,19 @@
       },
       {
         "kind": "notice",
-        "messageKey": "notice.baseline_saved",
+        "messageKey": "notice.baseline_progress",
         "params": {
-          "game": "Hollow Knight"
+          "game": "Hollow Knight",
+          "n": 2
         },
         "promptId": "p_3"
       },
       {
         "kind": "notice",
-        "messageKey": "notice.baseline_saved",
+        "messageKey": "notice.baseline_progress",
         "params": {
-          "game": "Hollow Knight"
+          "game": "Hollow Knight",
+          "n": 1
         },
         "promptId": "p_4"
       },

@@ -1,0 +1,19 @@
+[package]
+name = "overdrive-app"
+description = "Overdrive desktop shell (Tauri 2): window, tray and relay to the overdrive-svc pipe."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["tray-icon"] }
+overdrive-ipc = { path = "../../crates/overdrive-ipc" }
+serde_json.workspace = true
+
+[[bin]]
+name = "overdrive"
+path = "src/main.rs"

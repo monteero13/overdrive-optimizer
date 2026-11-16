@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/overdrive-core", "crates/overdrive-win", "crates/overdrive-ipc", "crates/overdrive-svc"]
+members = ["crates/overdrive-core", "crates/overdrive-win", "crates/overdrive-ipc", "crates/overdrive-svc", "ui/src-tauri"]
 
 [workspace.package]
 version = "1.0.0-alpha.1"

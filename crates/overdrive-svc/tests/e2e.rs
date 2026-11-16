@@ -197,10 +197,10 @@ struct Ui {
 }
 
 impl Ui {
-    fn new(dir: &PathBuf, world: Rc<World>, sys: Rc<FakeSystem>) -> Self {
+    fn new(dir: &std::path::Path, world: Rc<World>, sys: Rc<FakeSystem>) -> Self {
         let hw = build_profile(&FakeSource::laptop_hybrid());
         let core = Core::new(
-            Config { data_dir: dir.clone(), svc_version: "test".into(), allow_reboot: false },
+            Config { data_dir: dir.to_path_buf(), svc_version: "test".into(), allow_reboot: false },
             Box::new(Shared(sys)),
             Box::new(FakePlatform(world.clone(), hw)),
         )

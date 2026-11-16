@@ -4,3 +4,7 @@ out/
 *.log
 .DS_Store
 target/
+
+# downloaded by tools/fetch-presentmon.ps1
+tools/presentmon/
+ui/src-tauri/gen/

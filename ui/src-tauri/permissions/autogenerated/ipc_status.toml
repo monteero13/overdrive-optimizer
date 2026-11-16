@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-ipc-status"
+description = "Enables the ipc_status command without any pre-configured scope."
+commands.allow = ["ipc_status"]
+
+[[permission]]
+identifier = "deny-ipc-status"
+description = "Denies the ipc_status command without any pre-configured scope."
+commands.deny = ["ipc_status"]

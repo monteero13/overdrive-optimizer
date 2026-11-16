@@ -5,24 +5,30 @@ import './styles/app.css';
 
 import { EngineClient } from './engine/client.ts';
 import { MockTransport } from './engine/transport.ts';
+import { inTauri, TauriTransport } from './engine/tauri.ts';
 import { MockService } from './mock/service.ts';
 import { App } from './ui/app.ts';
 
-// Phase 2: always the mock engine. Phase 3+: a TauriTransport relays to \\.\pipe\overdrive.v1
-// and the dev panel disappears (mock === null).
-const service = new MockService('laptop_hybrid');
-const transport = new MockTransport(service);
-service.link = { down: () => transport.disconnect(), up: () => transport.connect() };
+// Inside the Tauri shell: the real service through the relay, no dev panel (mock === null).
+// In a plain browser (vite dev, reviews): the mock engine with its dev panel.
+if (inTauri()) {
+  const transport = new TauriTransport();
+  const client = new EngineClient(transport, __APP_VERSION__);
+  new App(document.getElementById('app')!, client, null);
+  void transport.start();
+} else {
+  const service = new MockService('laptop_hybrid');
+  const transport = new MockTransport(service);
+  service.link = { down: () => transport.disconnect(), up: () => transport.connect() };
+  const client = new EngineClient(transport);
+  new App(document.getElementById('app')!, client, service);
+  transport.connect();
+  // Dev-only deep links to reach states quickly (screenshots, reviews):
+  //   ?preset=desktop_entry&mode=expert&theme=light&locale=en&view=pc&plan=1&session=1&report=1&dev=0
+  if (import.meta.env.DEV) void demo(new URLSearchParams(location.search), service, client);
+}
 
-const client = new EngineClient(transport);
-new App(document.getElementById('app')!, client, service);
-transport.connect();
-
-// Dev-only deep links to reach states quickly (screenshots, reviews):
-//   ?preset=desktop_entry&mode=expert&theme=light&locale=en&view=pc&plan=1&session=1&report=1&dev=0
-if (import.meta.env.DEV) void demo(new URLSearchParams(location.search));
-
-async function demo(q: URLSearchParams): Promise<void> {
+async function demo(q: URLSearchParams, service: MockService, client: EngineClient): Promise<void> {
   if (![...q.keys()].length) return;
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const click = (sel: string) => document.querySelector<HTMLElement>(sel)?.click();

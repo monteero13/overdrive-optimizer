@@ -82,19 +82,14 @@ pub fn listen(name: &str, sddl: &str, policy: ClientPolicy) -> std::io::Result<(
         let inbox_r = inbox.clone();
         thread::spawn(move || {
             let (mut window, mut count) = (Instant::now(), 0u32);
-            loop {
-                match r.read_frame() {
-                    Ok(f) => {
-                        if window.elapsed() >= Duration::from_secs(1) {
-                            window = Instant::now();
-                            count = 0;
-                        }
-                        count += 1;
-                        if count > RATE_LIMIT || inbox_r.send(Msg::Request(id, f)).is_err() {
-                            break;
-                        }
-                    }
-                    Err(_) => break,
+            while let Ok(f) = r.read_frame() {
+                if window.elapsed() >= Duration::from_secs(1) {
+                    window = Instant::now();
+                    count = 0;
+                }
+                count += 1;
+                if count > RATE_LIMIT || inbox_r.send(Msg::Request(id, f)).is_err() {
+                    break;
                 }
             }
             r.close();
